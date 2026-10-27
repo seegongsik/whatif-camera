@@ -1,5 +1,22 @@
 # PROGRESS
 
+## 2026-10-27 (KST) · 1일 차 밤 ③: 운영에서 전 과정 확인
+
+### 실제로 돌린 값 (PR #3 머지 뒤 https://whatif-camera.vercel.app)
+- Muse Spark Open 실호출 성공:
+  - 사진 없이 4.3 s. 제목 「Evening Garden Above the City」.
+  - 사진 포함 7.5 s. 사진의 창문 격자를 보고 window boxes를 켬(프롬프트 규칙대로).
+- 건물 조회:
+  - 서울시청 2.1 s(41동), 강남역 1.8 s(42동), 반경 120 m. 출처는 둘 다 지도 타일.
+  - 9~17 s였던 것이 2 s 안팎으로 줄었음.
+- 운영 앱에서 합성 데모 전 과정(390×844 헤드리스):
+  - 「Build 3D」부터 결과까지 7.5 s. 그중 Muse Spark 디자인이 6.8 s.
+  - 계획 제목 「Soft Corner Glow Garden」, 프리셋 저장 OK.
+- 그 프리셋으로 데모 영상(1080×1920, 30 fps)을 프레임 단위로 렌더링함(브라우저 실시간 녹화는 이 환경에서 5 fps 정도라 끊김).
+
+### 고친 것
+- 저장된 선택으로 연 장면에서 「Using the building you tapped」가 뜨던 문구 → 「saved with this capture」.
+
 ## 2026-10-27 (KST) · 1일 차 밤 ②: 운영 실측 결과와 수정
 
 ### 실제로 돌린 값 (https://whatif-camera.vercel.app, PR #2 머지 뒤)

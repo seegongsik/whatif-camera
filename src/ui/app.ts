@@ -374,11 +374,14 @@ export class App {
     const info = h("p", { class: "muted" });
     const draw = () => {
       const best = located.candidates[0]?.id === this.selectedId;
+      const saved = Boolean(input.selectionId) && input.selectionId === this.selectedId;
       info.textContent = !this.selectedId
         ? "Tap the building you photographed."
-        : best
-          ? "The orange building is the best match for where the camera pointed. Tap another footprint if it is not the one."
-          : "Using the building you tapped.";
+        : saved
+          ? "The orange building is the one saved with this capture. Tap another footprint to change it."
+          : best
+            ? "The orange building is the best match for where the camera pointed. Tap another footprint if it is not the one."
+            : "Using the building you tapped.";
       holder.replaceChildren(
         topView({
           footprints: located.footprints,
