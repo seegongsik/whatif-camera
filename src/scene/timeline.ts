@@ -209,9 +209,10 @@ export function makeTimeline(spec: BuildingSpec, plan: DesignPlan, aspect = 9 / 
       const wipeT = ramp(t, 23.0, 24.4) - 0.5 * ramp(t, 24.6, 25.6);
       return {
         pose: orbitPose(orbit),
-        envPhoto: 1 - ramp(t, 2.6, 5.4) + ramp(t, 20.2, 22.2),
-        targetPhoto: 1 - ramp(t, 3.8, 6.6) + ramp(t, 20.6, 22.4),
-        fog: ramp(t, 2.6, 5.4) - ramp(t, 20.2, 22.0),
+        // The photo stays on everything it saw; facades fill in the rest.
+        envPhoto: 1,
+        targetPhoto: 1,
+        fog: 0.85 * (ramp(t, 2.6, 5.4) - ramp(t, 20.2, 22.0)),
         edges: ramp(t, 4.6, 6.6) - ramp(t, 20.0, 21.6),
         floors: ramp(t, 7.2, 9.6),
         dims: ramp(t, 6.4, 8.8),

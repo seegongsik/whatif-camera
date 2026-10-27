@@ -28,8 +28,8 @@ GPS and compass only seed this. They enter as priors with their own uncertainty,
 5. **Design**: Muse Spark Open looks at the photo and the measured facts and chooses from a short menu (deck, planters, trees, pergola, seating, string lights, vines, window boxes, awning, wall lights, colours, captions). It never places anything or writes a number: the layout code places every item on the measured roof and walls. Without a key the app uses its local plan and says so.
 6. **Video** (rendered in the browser with three.js, about 27 s):
    - the photo itself, then the camera moves and the photo's building turns solid (the photo is projected back onto the 3D scene from the camera that took it, so the first frame is the photo pixel for pixel);
-   - a white architectural model with floor lines and dimension lines (width and depth from the map, height marked ≈);
-   - the garden grows, the vines climb, the sun goes down at the real evening sun position for that place and date, the lights come on;
+   - the photo stays on every wall it saw; walls it did not see get a drawn facade (a window grid on the storey height, the wall colour taken from the photo), with floor lines and dimension lines on top (width and depth from the map, height marked ≈);
+   - the garden grows, the vines climb, the sun goes down at the real evening sun position for that place and date, the lights and some windows come on;
    - back to the exact photo viewpoint for a before/after wipe.
 7. **Record and share**: the canvas is recorded (MP4 where the browser can, otherwise WebM) with the map attribution and estimate labels burned in.
 

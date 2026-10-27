@@ -54,6 +54,7 @@ export function factsPanel(input: SceneInput, spec: BuildingSpec, plan: DesignPl
     spec.neighbours.some((n) => n.heightSource === "map tiles (approximate)")
       ? h("li", { text: `${spec.neighbours.filter((n) => n.heightSource === "map tiles (approximate)").length} neighbouring buildings drawn at the map tiles' approximate height (context only).` })
       : null,
+    h("li", { text: "Walls the photo did not see are drawn with a generic window grid on the storey height: an illustration, not measured." }),
     h("li", { text: "Decorations are an idea, not a plan: a real roof garden needs a structural check." }),
   );
   const design = h("div", { class: "design" }, h("p", { class: "plan-note", text: planNote }), h("p", { text: plan.rationale }));

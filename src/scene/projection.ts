@@ -6,6 +6,7 @@
  * projection from painting surfaces the photo could not see.
  */
 import {
+  Color,
   DepthTexture,
   DoubleSide,
   LinearFilter,
@@ -33,6 +34,8 @@ export type ProjectorUniforms = {
   photoNear: Uniform<number>;
   photoFar: Uniform<number>;
   photoDepthOn: Uniform<number>;
+  /** Multiplies the photo, to take it into the evening. */
+  photoTint: Uniform<Color>;
 };
 
 const VERTEX_HEAD = `
@@ -54,6 +57,7 @@ uniform float photoMix;
 uniform float photoNear;
 uniform float photoFar;
 uniform float photoDepthOn;
+uniform vec3 photoTint;
 varying vec3 vPhotoWorld;
 varying vec3 vPhotoNormal;
 float photoLinearDepth(float d) {
@@ -81,7 +85,7 @@ const FRAGMENT_BODY = `
       float photoSlack = 0.4 + photoMine * 0.012;
       photoVis *= 1.0 - smoothstep(photoSlack, photoSlack * 2.0, photoMine - photoStored);
     }
-    photoColor = texture2D(photoMap, photoUv).rgb;
+    photoColor = texture2D(photoMap, photoUv).rgb * photoTint;
   }
   gl_FragColor.rgb = mix(gl_FragColor.rgb, photoColor, clamp(photoMix * photoVis, 0.0, 1.0));
 }
@@ -116,6 +120,7 @@ export class PhotoProjector {
       photoNear: { value: camera.near },
       photoFar: { value: camera.far },
       photoDepthOn: { value: 0 },
+      photoTint: { value: new Color(1, 1, 1) },
     };
   }
 

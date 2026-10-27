@@ -27,6 +27,8 @@ const EVENING_SKY = new Color("#f2b88f");
 const EVENING_HEMI_SKY = new Color("#b6a3c8");
 const DAY_HEMI_GROUND = new Color("#cdc6b8");
 const EVENING_HEMI_GROUND = new Color("#8f7a68");
+// Linear multiplier that takes the daylight photo towards the evening light.
+const EVENING_PHOTO = new Color(0.8, 0.64, 0.56);
 
 export type PlayerLoad = {
   spec: BuildingSpec;
@@ -143,6 +145,8 @@ export class Player {
     w.skyMaterial.color.copy(WHITE).lerp(EVENING_SKY, evening);
     w.fog.color.copy(SKY_HORIZON).lerp(EVENING_SKY, evening * 0.8);
     this.renderer.toneMappingExposure = 1 - 0.04 * evening;
+    w.projector.uniforms.photoTint.value.copy(WHITE).lerp(EVENING_PHOTO, evening);
+    w.facade.facadeEvening.value = Math.min(1, Math.max(0, s.lightsOn));
 
     w.edgeMaterial.opacity = 0.75 * Math.min(1, Math.max(0, s.edges));
     const n = w.floorMaterials.length;

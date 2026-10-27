@@ -21,6 +21,7 @@ import {
   MeshBasicMaterial,
   MeshStandardMaterial,
   PerspectiveCamera,
+  SRGBColorSpace,
   Scene,
   Shape,
   SphereGeometry,
@@ -36,8 +37,10 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import { verticalFovDeg } from "../camera/pose.js";
 import { centroid, edges, type Ring } from "../geo/polygon.js";
 import { sunVector } from "../geo/sun.js";
+import { ASSUMED_FLOOR_HEIGHT_M } from "../estimate/height.js";
 import type { BuildingSpec } from "../estimate/spec.js";
 import { quaternionFor, toWorld, toWorldAt } from "./coords.js";
+import { facadeUniforms, neighbourWall, patchFacade, setFacade, type FacadeUniforms } from "./facade.js";
 import { PhotoProjector } from "./projection.js";
 
 export const LAYER_ADDED = 1;
@@ -49,6 +52,7 @@ export type World = {
   projector: PhotoProjector;
   envMix: Uniform<number>;
   targetMix: Uniform<number>;
+  facade: FacadeUniforms;
   targetMaterial: MeshStandardMaterial;
   skyMaterial: MeshBasicMaterial;
   sun: DirectionalLight;
@@ -67,11 +71,11 @@ export type World = {
   dispose(): void;
 };
 
-export const MODEL_WHITE = new Color("#f3f0ea");
-const NEIGHBOUR_GREY = new Color("#e2dfd8");
-const GROUND = new Color("#e9e6df");
-export const SKY_TOP = new Color("#c9d6e3");
-export const SKY_HORIZON = new Color("#f1efea");
+/** Wall colour of the selected building when the photo gives none. */
+const TARGET_WALL = new Color("#ddd6ca");
+const GROUND = new Color("#b7b3ab");
+export const SKY_TOP = new Color("#9dbcdc");
+export const SKY_HORIZON = new Color("#e4e9ed");
 
 function prism(ring: Ring, height: number, base = 0): ExtrudeGeometry {
   const shape = new Shape(ring.map((p) => new Vector2(p.x, p.y)));
@@ -93,6 +97,50 @@ function skyGeometry(): BufferGeometry {
   }
   g.setAttribute("color", new Float32BufferAttribute(colors, 3));
   return g;
+}
+
+const luma = ([r, g, b]: number[]) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+/**
+ * The colour of the selected building's walls where the photo saw them, so
+ * the walls it did not see match. Windows are darker than the wall around
+ * them, so the sample at 70% of the brightness order stands for the wall.
+ * Null when too little was seen.
+ */
+function wallFromPhoto(spec: BuildingSpec, photo: HTMLCanvasElement, camera: PerspectiveCamera): Color | null {
+  const w = 256;
+  const h = Math.max(1, Math.round((w * photo.height) / photo.width));
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return null;
+  let pixels: Uint8ClampedArray;
+  try {
+    ctx.drawImage(photo, 0, 0, w, h);
+    pixels = ctx.getImageData(0, 0, w, h).data;
+  } catch {
+    return null;
+  }
+  const cam = spec.pose.position;
+  const samples: number[][] = [];
+  const p = new Vector3();
+  for (const e of edges(spec.target.ring)) {
+    // Walls facing the camera; anything nearer that hides them is outvoted.
+    if (e.normal.x * (cam.x - (e.a.x + e.b.x) / 2) + e.normal.y * (cam.y - (e.a.y + e.b.y) / 2) <= 0) continue;
+    for (let s = 0.1; s < 0.95; s += 0.1) {
+      for (let z = 0.1; z < 0.95; z += 0.1) {
+        p.copy(toWorldAt({ x: e.a.x + (e.b.x - e.a.x) * s, y: e.a.y + (e.b.y - e.a.y) * s }, z * spec.height.heightM)).project(camera);
+        if (p.z > 1 || Math.abs(p.x) > 1 || Math.abs(p.y) > 1) continue;
+        const i = (Math.floor(((1 - p.y) / 2) * (h - 1)) * w + Math.floor(((p.x + 1) / 2) * (w - 1))) * 4;
+        samples.push([pixels[i], pixels[i + 1], pixels[i + 2]]);
+      }
+    }
+  }
+  if (samples.length < 8) return null;
+  samples.sort((a, b) => luma(a) - luma(b));
+  const [r, g, b] = samples[Math.floor(samples.length * 0.7)];
+  return new Color().setRGB(r / 255, g / 255, b / 255, SRGBColorSpace);
 }
 
 function outlineAt(ring: Ring, z: number, out: number): number[] {
@@ -133,21 +181,30 @@ export function buildWorld(spec: BuildingSpec, photo: HTMLCanvasElement): World 
 
   const envMix = { value: 1 };
   const targetMix = { value: 1 };
+  const facade = facadeUniforms();
   const height = spec.height.heightM;
 
-  // Selected building.
+  // Selected building; its unseen walls take the colour of the seen ones.
   const targetGeometry = prism(spec.target.ring, height);
-  const targetMaterial = new MeshStandardMaterial({ color: MODEL_WHITE.clone(), roughness: 0.92, metalness: 0 });
+  const wall = (wallFromPhoto(spec, photo, photoCamera) ?? TARGET_WALL.clone()).lerp(TARGET_WALL, 0.2);
+  setFacade(targetGeometry, wall, height, spec.height.floorHeightM, 1);
+  const targetMaterial = new MeshStandardMaterial({ roughness: 0.92, metalness: 0 });
   projector.patch(targetMaterial, targetMix, true);
+  patchFacade(targetMaterial, facade);
   const target = new Mesh(targetGeometry, targetMaterial);
   target.castShadow = true;
   target.receiveShadow = true;
   scene.add(target);
 
   // Neighbours in one mesh.
-  const neighbourGeometries = spec.neighbours.map((n) => prism(n.ring, n.heightM));
-  const neighbourMaterial = new MeshStandardMaterial({ color: NEIGHBOUR_GREY, roughness: 0.95, metalness: 0 });
+  const neighbourGeometries = spec.neighbours.map((n, i) => {
+    const g = prism(n.ring, n.heightM);
+    setFacade(g, neighbourWall(n.id), n.heightM, ASSUMED_FLOOR_HEIGHT_M, i + 2);
+    return g;
+  });
+  const neighbourMaterial = new MeshStandardMaterial({ roughness: 0.95, metalness: 0 });
   projector.patch(neighbourMaterial, envMix, true);
+  patchFacade(neighbourMaterial, facade);
   if (neighbourGeometries.length > 0) {
     const merged = mergeGeometries(neighbourGeometries, false);
     neighbourGeometries.forEach((g) => g.dispose());
@@ -229,6 +286,7 @@ export function buildWorld(spec: BuildingSpec, photo: HTMLCanvasElement): World 
     projector,
     envMix,
     targetMix,
+    facade,
     targetMaterial,
     skyMaterial,
     sun,
