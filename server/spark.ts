@@ -14,7 +14,7 @@ export type ChatMessage =
   | { role: "system"; content: string }
   | { role: "user"; content: string | ChatPart[] };
 
-export type ChatReply = { text: string; finishReason: string; latencyMs: number };
+export type ChatReply = { text: string; reasoning: string; finishReason: string; latencyMs: number };
 
 export class SparkError extends Error {
   readonly status: number;
@@ -29,7 +29,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
 }
 
-export function replyText(body: unknown): { text: string; finishReason: string } {
+export function replyText(body: unknown): { text: string; reasoning: string; finishReason: string } {
   const root = asRecord(body);
   const choice = asRecord(Array.isArray(root?.choices) ? root.choices[0] : null);
   const message = asRecord(choice?.message);
@@ -45,31 +45,45 @@ export function replyText(body: unknown): { text: string; finishReason: string }
       })
       .join("");
   }
-  return { text, finishReason: typeof choice?.finish_reason === "string" ? choice.finish_reason : "" };
+  // Reasoning models return their thinking separately (field name differs by server).
+  const reasoning =
+    typeof message.reasoning_content === "string"
+      ? message.reasoning_content
+      : typeof message.reasoning === "string"
+        ? message.reasoning
+        : "";
+  return { text, reasoning, finishReason: typeof choice?.finish_reason === "string" ? choice.finish_reason : "" };
 }
 
+/**
+ * Muse Spark Open always reasons before it answers, and the reasoning counts
+ * against max_tokens, so the budget is generous and the effort is asked to
+ * be low. A server that does not know reasoning_effort gets the request again
+ * without it.
+ */
 export async function sparkChat(
   messages: ChatMessage[],
-  options: { maxTokens?: number; temperature?: number } = {},
+  options: { maxTokens?: number; temperature?: number; reasoningEffort?: "low" | "medium" | "high" } = {},
   deps: { env?: EnvMap; fetchImpl?: typeof fetch; now?: () => number; timeoutMs?: number } = {},
 ): Promise<ChatReply> {
   const key = resolveBasetenApiKey(deps.env ?? process.env);
   if (!key) throw new SparkError(503, "BASETEN_API_KEY is not configured");
   const fetchImpl = deps.fetchImpl ?? fetch;
   const now = deps.now ?? Date.now;
-  const body = JSON.stringify({
+  const payload: Record<string, unknown> = {
     model: MUSE_SPARK_OPEN_MODEL,
     messages,
-    max_tokens: options.maxTokens ?? 1200,
+    max_tokens: options.maxTokens ?? 6000,
     temperature: options.temperature ?? 0.6,
-  });
+    reasoning_effort: options.reasoningEffort ?? "low",
+  };
   let last = { status: 502, message: "the model request failed" };
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const started = now();
     const response = await fetchImpl(`${BASETEN_API_BASE}/chat/completions`, {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", Accept: "application/json" },
-      body,
+      body: JSON.stringify(payload),
       signal: AbortSignal.timeout(deps.timeoutMs ?? 75_000),
     });
     if (response.ok) {
@@ -78,6 +92,10 @@ export async function sparkChat(
     }
     const text = (await response.text().catch(() => "")).replace(/\s+/g, " ").trim();
     last = { status: response.status, message: text.length > 300 ? `${text.slice(0, 300)}…` : text || `HTTP ${response.status}` };
+    if (response.status === 400 && "reasoning_effort" in payload && /reasoning/i.test(text)) {
+      delete payload.reasoning_effort;
+      continue;
+    }
     if (response.status !== 429 && response.status < 500) break;
     await new Promise((resolve) => setTimeout(resolve, 700 * (attempt + 1)));
   }

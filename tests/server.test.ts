@@ -69,7 +69,7 @@ describe("routes", () => {
     let calls = 0;
     const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
       calls += 1;
-      expect(String(init?.body)).toContain("data=");
+      if (init?.method === "POST") expect(String(init?.body)).toContain("data=");
       return Response.json(fixture);
     }) as typeof fetch;
     const url = "http://x/api/footprints?lat=37.5&lon=127&radius=150";
@@ -77,8 +77,9 @@ describe("routes", () => {
     expect(first.status).toBe(200);
     const body = await first.json();
     expect(body.buildings).toHaveLength(3);
+    const afterFirst = calls;
     await handleFootprints(new Request(url), { env: {}, fetchImpl });
-    expect(calls).toBe(1);
+    expect(calls).toBe(afterFirst);
   });
 
   it("passes an Overpass failure through as a gateway error", async () => {
@@ -136,6 +137,9 @@ describe("routes", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(sent!.model).toBe("meta-models/muse-spark-open-1026");
+    // Reasoning counts against max_tokens: a generous budget, low effort.
+    expect(sent!.max_tokens).toBe(6000);
+    expect(sent!.reasoning_effort).toBe("low");
     expect(body.plan.source).toBe("muse-spark-open");
     // Digits are stripped from text; numbers on screen come from the spec.
     expect(body.plan.title).toBe("Sky garden");
@@ -144,6 +148,37 @@ describe("routes", () => {
     expect(body.plan.palette.wood).toBe("#b07a4a");
     expect(body.plan.roof.trees).toBe(6);
     expect(body.plan.facade.vines).toBe("corners");
+  });
+
+  it("says why when the reasoning used up the budget and no answer came", async () => {
+    const fetchImpl = (async () =>
+      Response.json({
+        choices: [{ finish_reason: "length", message: { content: "", reasoning_content: "Let me think about the roof... ".repeat(40) } }],
+      })) as unknown as typeof fetch;
+    const res = await handleDesign(
+      new Request("http://x/api/design", { method: "POST", body: JSON.stringify({ facts }) }),
+      { env: { BASETEN_API_KEY: "k" }, fetchImpl },
+    );
+    expect(res.status).toBe(502);
+    expect((await res.json()).error).toMatch(/finish_reason length, answer 0 characters, reasoning \d+ characters/);
+  });
+
+  it("asks again without reasoning_effort when the server does not know it", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      bodies.push(body);
+      if ("reasoning_effort" in body) return new Response('{"error":"unknown field reasoning_effort"}', { status: 400 });
+      return Response.json({ choices: [{ finish_reason: "stop", message: { content: '{"title":"Green roof"}' } }] });
+    }) as typeof fetch;
+    const res = await handleDesign(
+      new Request("http://x/api/design", { method: "POST", body: JSON.stringify({ facts }) }),
+      { env: { BASETEN_API_KEY: "k" }, fetchImpl },
+    );
+    expect(res.status).toBe(200);
+    expect(bodies).toHaveLength(2);
+    expect("reasoning_effort" in bodies[1]).toBe(false);
+    expect((await res.json()).plan.title).toBe("Green roof");
   });
 
   it("rejects an oversized or non-image upload", async () => {

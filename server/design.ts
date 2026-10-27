@@ -4,7 +4,7 @@
  */
 import { DESIGN_MENU, parsePlan, type DesignFacts, type DesignPlan } from "../src/design/plan.js";
 import type { EnvMap } from "./keys.js";
-import { firstJsonObject, MUSE_SPARK_OPEN_MODEL, sparkChat, type ChatMessage, type ChatPart } from "./spark.js";
+import { firstJsonObject, MUSE_SPARK_OPEN_MODEL, SparkError, sparkChat, type ChatMessage, type ChatPart } from "./spark.js";
 
 export const SYSTEM_PROMPT = [
   "You design a short 'what if' makeover video for one real building: a rooftop garden, greenery on the walls and evening light.",
@@ -36,6 +36,20 @@ export async function designWithSpark(
   deps: { env?: EnvMap; fetchImpl?: typeof fetch; now?: () => number } = {},
 ): Promise<{ plan: DesignPlan; notes: string[]; latencyMs: number; model: string }> {
   const reply = await sparkChat(buildDesignMessages(facts, imageDataUrl), {}, deps);
-  const { plan, notes } = parsePlan(firstJsonObject(reply.text), facts, "muse-spark-open");
+  let raw: unknown;
+  try {
+    raw = firstJsonObject(reply.text);
+  } catch {
+    // The answer can end up only in the reasoning when the budget ran out mid-way.
+    try {
+      raw = firstJsonObject(reply.reasoning.slice(reply.reasoning.lastIndexOf('{"title"') >= 0 ? reply.reasoning.lastIndexOf('{"title"') : 0));
+    } catch {
+      throw new SparkError(
+        502,
+        `the model reply has no JSON object (finish_reason ${reply.finishReason || "none"}, answer ${reply.text.length} characters, reasoning ${reply.reasoning.length} characters)`,
+      );
+    }
+  }
+  const { plan, notes } = parsePlan(raw, facts, "muse-spark-open");
   return { plan, notes, latencyMs: reply.latencyMs, model: MUSE_SPARK_OPEN_MODEL };
 }

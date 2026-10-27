@@ -21,6 +21,9 @@ export function factsPanel(input: SceneInput, spec: BuildingSpec, plan: DesignPl
     { class: "facts" },
     row("Height", `≈ ${fmt(H.heightM)} m`, `estimate from the photo and the map (edges: ${[H.leftHeightM, H.rightHeightM, H.nearHeightM].filter((x): x is number => x !== null).map((x) => fmt(x)).join(", ")} m)`),
     tags.heightM !== undefined && !input.synthetic ? row("Height in OpenStreetMap", `${fmt(tags.heightM)} m`, "for comparison") : null,
+    tags.heightM === undefined && tags.tileHeightM !== undefined && !input.synthetic
+      ? row("Height on the map", `≈ ${fmt(tags.tileHeightM, 0)} m`, "from OpenStreetMap height or levels, via map tiles; for comparison")
+      : null,
     row("Floors", `${H.floors}`, H.floorsSource === "OpenStreetMap building:levels" ? "OpenStreetMap building:levels" : `height ÷ ${fmt(ASSUMED_FLOOR_HEIGHT_M)} m per floor (assumption)`),
     row("Footprint", `${fmt(spec.widthM)} × ${fmt(spec.depthM)} m · roof ${Math.round(spec.roofAreaM2)} m²`, spec.footprintSource),
   );

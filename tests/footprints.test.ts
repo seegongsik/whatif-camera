@@ -90,6 +90,13 @@ describe("vector tiles (SYNTHETIC tile)", () => {
     expect(Math.max(...lats) - Math.min(...lats)).toBeGreaterThan(0);
   });
 
+  it("treats the schema's default height of 5 m as unknown", () => {
+    const tile = tileBytes([{ rings: [square(px, py, 30)], height: 5 }, { rings: [square(px + 100, py, 30)], height: 4 }]);
+    const buildings = buildingsFromTile(tile, 14, tx, ty);
+    expect(buildings[0].tags.tileHeightM).toBeUndefined();
+    expect(buildings[1].tags.tileHeightM).toBe(4);
+  });
+
   it("decodes command integers with counts above one", () => {
     const rings = polygonRings(geometry([square(5, 5, 4)]));
     expect(rings[0]).toEqual([
@@ -119,7 +126,7 @@ describe("footprint sources", () => {
       return Response.json(fixture);
     }) as typeof fetch;
     const set = await lookupFootprints(center, 150, { env: {}, fetchImpl });
-    expect(seen).toHaveLength(2);
+    expect(seen.filter((u) => u.includes("interpreter"))).toHaveLength(2);
     expect(set.source).toContain("overpass.private.coffee");
     expect(set.buildings).toHaveLength(3);
   });
@@ -152,6 +159,27 @@ describe("footprint sources", () => {
 
   it("names every source that failed", async () => {
     const fetchImpl = (async () => new Response("busy", { status: 504 })) as unknown as typeof fetch;
-    await expect(lookupFootprints(center, 150, { env: {}, fetchImpl })).rejects.toThrow(/overpass-api\.de: 504.*overpass\.private\.coffee: 504.*tiles: TileJSON 504/);
+    const error = await lookupFootprints(center, 150, { env: {}, fetchImpl }).catch((e: Error) => e);
+    expect(String(error)).toMatch(/overpass-api\.de: 504/);
+    expect(String(error)).toMatch(/overpass\.private\.coffee: 504/);
+    expect(String(error)).toMatch(/tiles: TileJSON 504/);
+  });
+
+  it("stops waiting for a slow Overpass server once the tiles have answered", async () => {
+    const tile = tileBytes([{ rings: [square(px, py, 30)], height: 33 }]);
+    const fetchImpl = ((url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes("interpreter")) {
+        // Never answers until aborted.
+        return new Promise<Response>((_, reject) => init?.signal?.addEventListener("abort", () => reject(new Error("aborted"))));
+      }
+      if (u === "https://tiles.openfreemap.org/planet") return Promise.resolve(Response.json({ tiles: ["https://tiles.example/v1/{z}/{x}/{y}.pbf"] }));
+      return Promise.resolve(new Response(tile.slice().buffer));
+    }) as typeof fetch;
+    const started = Date.now();
+    const set = await lookupFootprints(center, 150, { env: {}, fetchImpl, graceMs: 50 });
+    expect(Date.now() - started).toBeLessThan(1500);
+    expect(set.source).toContain("vector tiles");
+    expect(set.buildings[0].tags.tileHeightM).toBe(33);
   });
 });
