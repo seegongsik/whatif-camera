@@ -35,9 +35,8 @@ import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { verticalFovDeg } from "../camera/pose.js";
-import { centroid, edges, type Ring } from "../geo/polygon.js";
+import { centroid, edges, pointInRing, type Ring } from "../geo/polygon.js";
 import { sunVector } from "../geo/sun.js";
-import { ASSUMED_FLOOR_HEIGHT_M } from "../estimate/height.js";
 import type { BuildingSpec } from "../estimate/spec.js";
 import { quaternionFor, toWorld, toWorldAt } from "./coords.js";
 import { facadeUniforms, neighbourWall, patchFacade, setFacade, type FacadeUniforms } from "./facade.js";
@@ -73,7 +72,7 @@ export type World = {
 
 /** Wall colour of the selected building when the photo gives none. */
 const TARGET_WALL = new Color("#ddd6ca");
-const GROUND = new Color("#b7b3ab");
+const GROUND = new Color("#9b9890");
 export const SKY_TOP = new Color("#9dbcdc");
 export const SKY_HORIZON = new Color("#e4e9ed");
 
@@ -175,9 +174,15 @@ export function buildWorld(spec: BuildingSpec, photo: HTMLCanvasElement): World 
     0.5,
     4000,
   );
+  // A cropped photo has its optical centre off the middle.
+  const k = spec.pose.intrinsics;
+  photoCamera.setViewOffset(k.width, k.height, k.width / 2 - k.cx, k.height / 2 - k.cy, k.width, k.height);
   photoCamera.position.copy(toWorld(spec.pose.position));
   photoCamera.quaternion.copy(quaternionFor(spec.pose.orientation));
   const projector = new PhotoProjector(new CanvasTexture(photo), photoCamera);
+  // Below the foot of the walls the picture shows what stands in front of the building.
+  const foot = Math.max(spec.marks.groundLeft.v, spec.marks.groundRight.v) + 0.01 * k.height;
+  projector.uniforms.photoCutV.value = 1 - foot / k.height;
 
   const envMix = { value: 1 };
   const targetMix = { value: 1 };
@@ -199,7 +204,11 @@ export function buildWorld(spec: BuildingSpec, photo: HTMLCanvasElement): World 
   // Neighbours in one mesh.
   const neighbourGeometries = spec.neighbours.map((n, i) => {
     const g = prism(n.ring, n.heightM);
-    setFacade(g, neighbourWall(n.id), n.heightM, ASSUMED_FLOOR_HEIGHT_M, i + 2);
+    // Parts standing inside the selected building, such as a tower, share its
+    // walls. Other neighbours stay plain where the photo did not see them: a
+    // drawn window grid there reads as a game world.
+    const part = pointInRing(centroid(n.ring), spec.target.ring);
+    setFacade(g, part ? wall : neighbourWall(n.id), n.heightM, part ? spec.height.floorHeightM : 0, i + 2);
     return g;
   });
   const neighbourMaterial = new MeshStandardMaterial({ roughness: 0.95, metalness: 0 });
@@ -223,7 +232,7 @@ export function buildWorld(spec: BuildingSpec, photo: HTMLCanvasElement): World 
   scene.add(ground);
 
   const skyMaterial = new MeshBasicMaterial({ vertexColors: true, side: BackSide, fog: false, depthWrite: false });
-  projector.patch(skyMaterial, envMix, false);
+  projector.patch(skyMaterial, envMix, false, false);
   const sky = new Mesh(skyGeometry(), skyMaterial);
   sky.renderOrder = -1;
   scene.add(sky);

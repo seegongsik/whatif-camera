@@ -108,7 +108,7 @@ export class Player {
     this.dims = dims;
     this.decor = decor;
     this.spec = input.spec;
-    this.timeline = makeTimeline(input.spec, input.plan, this.width / this.height);
+    this.timeline = makeTimeline(input.spec, input.plan);
     world.projector.renderDepth(this.renderer, world.scene);
     // The untouched photo, as framed by the video, for the before/after wipe.
     this.apply(this.timeline.at(0));
@@ -126,6 +126,12 @@ export class Player {
     this.camera.position.copy(toWorld(s.pose.position));
     this.camera.quaternion.copy(quaternionFor(s.pose.orientation));
     this.camera.fov = s.pose.vfovDeg;
+    const { x, y } = s.pose.shift;
+    if (Math.abs(x) + Math.abs(y) > 1e-4) {
+      this.camera.setViewOffset(this.width, this.height, -x * this.height, -y * this.height, this.width, this.height);
+    } else {
+      this.camera.clearViewOffset();
+    }
     this.camera.updateProjectionMatrix();
 
     w.envMix.value = Math.min(1, Math.max(0, s.envPhoto));
@@ -146,13 +152,15 @@ export class Player {
     w.fog.color.copy(SKY_HORIZON).lerp(EVENING_SKY, evening * 0.8);
     this.renderer.toneMappingExposure = 1 - 0.04 * evening;
     w.projector.uniforms.photoTint.value.copy(WHITE).lerp(EVENING_PHOTO, evening);
+    w.projector.uniforms.photoCutOn.value = Math.min(1, Math.max(0, s.foregroundCut));
     w.facade.facadeEvening.value = Math.min(1, Math.max(0, s.lightsOn));
 
     w.edgeMaterial.opacity = 0.75 * Math.min(1, Math.max(0, s.edges));
     const n = w.floorMaterials.length;
     w.floorMaterials.forEach((m, i) => {
       const local = Math.min(1, Math.max(0, s.floors * (n + 2) - i));
-      m.opacity = 0.55 * local * Math.min(1, Math.max(0, s.edges));
+      // Estimated storeys need not match the photo's windows: show them with the measurements only.
+      m.opacity = 0.55 * local * Math.min(1, Math.max(0, s.edges)) * Math.max(0, s.dimsFade);
     });
     this.dims!.setProgress(s.dims);
     this.dims!.setFade(s.dimsFade);

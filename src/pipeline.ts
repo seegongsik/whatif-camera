@@ -133,5 +133,7 @@ export function layoutFor(spec: BuildingSpec, plan: DesignPlan): Layout {
     floorHeightM: spec.height.floorHeightM,
     mainFacade: spec.mainFacade,
     plan,
+    // Only the synthetic scene draws its windows on the storey grid the layout uses.
+    windowGridKnown: spec.synthetic,
   });
 }

@@ -67,6 +67,7 @@ export function parsePreset(text: string): PresetFile {
     throw new Error("The preset's capture is incomplete (position, heading, pitch, roll).");
   }
   if (!isNumber(c.fovLongDeg) || !isNumber(c.accuracyM)) throw new Error("The preset's capture lacks the field of view or accuracy.");
+  if (c.principalPoint !== undefined && !isPixel(c.principalPoint)) throw new Error("The preset's optical centre is malformed.");
   if (!isFootprintSet(p.footprints)) throw new Error("The preset's footprints are missing or malformed.");
   if (p.marks) {
     const m = p.marks;

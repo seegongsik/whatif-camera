@@ -28,7 +28,8 @@ GPS and compass only seed this. They enter as priors with their own uncertainty,
 5. **Design**: Muse Spark Open looks at the photo and the measured facts and chooses from a short menu (deck, planters, trees, pergola, seating, string lights, vines, window boxes, awning, wall lights, colours, captions). It never places anything or writes a number: the layout code places every item on the measured roof and walls. Without a key the app uses its local plan and says so.
 6. **Video** (rendered in the browser with three.js, about 27 s):
    - the photo itself, then the camera moves and the photo's building turns solid (the photo is projected back onto the 3D scene from the camera that took it, so the first frame is the photo pixel for pixel);
-   - the photo stays on every wall it saw; walls it did not see get a drawn facade (a window grid on the storey height, the wall colour taken from the photo), with floor lines and dimension lines on top (width and depth from the map, height marked ≈);
+   - the camera stays on the photo's side of the building, where the picture covers the scene: it pushes in, swings toward the main facade and rises to the roof line. Once it moves, the road and cars in front of the building are left out of the projection, so they do not smear across the ground;
+   - the photo stays on every wall it saw. The selected building's unseen walls get a drawn facade (a window grid on the storey height, the wall colour taken from the photo); other buildings stay plain there. Floor lines and dimension lines show during the measurement (width and depth from the map, height marked ≈);
    - the garden grows, the vines climb, the sun goes down at the real evening sun position for that place and date, the lights and some windows come on;
    - back to the exact photo viewpoint for a before/after wipe.
 7. **Record and share**: the canvas is recorded (MP4 where the browser can, otherwise WebM) with the map attribution and estimate labels burned in.
@@ -111,5 +112,9 @@ All application code was written in this repository during the hackathon (from 2
 - OpenStreetMap coverage and tags vary by place; where the footprint is missing the app cannot place the photo.
 - Portrait capture only. The compass is magnetic; the registration absorbs the declination along with the compass error.
 - Interior layouts are not shown: they cannot be seen from outside.
+- One photo sees one side. What stood in front of the building (cars, trees) is painted onto the walls and the ground, and parts the photo did not see show plain walls; the camera therefore stays near the photo's viewpoint. Map boxes taller than the real building (a curved roof) can show sky at their top edge when the camera rises. Masks from SAM 3.1 (sky, foreground) are the planned fix.
+- The floor count is height ÷ 3.0 m unless OpenStreetMap has `building:levels`; older and civic buildings with tall storeys come out with too many floors.
+- Window boxes are left out for real photos until the window positions are measured; the design model may still choose them.
+- A cropped photo (a screenshot) has its optical centre off the middle; a preset can carry it as `capture.principalPoint`, the live app assumes the middle.
 - The public Overpass servers are often full (on 2026-10-27 overpass-api.de answered "at capacity" to every lookup from the deployment); lookups fall back to a second server and then to vector tiles. A building that straddles a tile border is cut in two in the tile fallback.
 - Real-phone checks of the orientation on iOS and Android, real buildings with known heights and SAM 3.1 automatic marks are next (`PROGRESS.md`).

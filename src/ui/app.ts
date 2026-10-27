@@ -488,6 +488,7 @@ export class App {
       plan = outcome.plan;
       note = outcome.note;
     }
+    if (plan.facade.windowBoxes && !spec.synthetic) note += " · window boxes left out: the photo does not give the window positions yet";
     this.plan = plan;
     this.spec = spec;
     const size = params.get("size") === "1080" ? [1080, 1920] : [720, 1280];

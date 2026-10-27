@@ -46,6 +46,9 @@ export function factsPanel(input: SceneInput, spec: BuildingSpec, plan: DesignPl
     { class: "assumptions" },
     h("li", { text: "The roof stands at the same height at both outer edges (flat roof)." }),
     input.capture.fovSource === "assumption" ? h("li", { text: `Field of view ${input.capture.fovLongDeg}° across the long side (typical phone main camera).` }) : null,
+    input.capture.principalPoint
+      ? h("li", { text: `The picture is a crop: its optical centre is taken at (${Math.round(input.capture.principalPoint.u)}, ${Math.round(input.capture.principalPoint.v)}) px, worked out from the picture's lines.` })
+      : null,
     H.floorsSource !== "OpenStreetMap building:levels" ? h("li", { text: `${fmt(ASSUMED_FLOOR_HEIGHT_M)} m per floor.` }) : null,
     H.cameraHeightSource === "assumption" ? h("li", { text: `Phone at ${fmt(ASSUMED_CAMERA_HEIGHT_M)} m (wall foot hidden).` }) : null,
     spec.neighbours.some((n) => n.heightSource === "assumption")

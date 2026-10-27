@@ -1,12 +1,14 @@
 /**
  * The shot list. The camera starts exactly where the photo was taken, so
- * the first frame is the photo; it then orbits the building and returns to
- * the same spot for the before/after. Camera moves are smooth monotone
- * splines through key poses; everything else is a fade window in seconds.
+ * the first frame is the photo. It then stays on the photo's side of the
+ * building, where the picture covers the scene: it pushes in, swings toward
+ * the main facade, rises to look onto the roof and returns to the same spot
+ * for the before/after. Camera moves are smooth monotone splines through key
+ * poses; everything else is a fade window in seconds.
  */
 import { basisFromOrientation, verticalFovDeg, type Orientation } from "../camera/pose.js";
-import type { ENU } from "../geo/enu.js";
-import { centroid } from "../geo/polygon.js";
+import { wrapDeg, type ENU } from "../geo/enu.js";
+import { centroid, edges } from "../geo/polygon.js";
 import type { BuildingSpec } from "../estimate/spec.js";
 import type { DesignPlan } from "../design/plan.js";
 import type { DecorChannel } from "./decor.js";
@@ -14,9 +16,12 @@ import type { DecorChannel } from "./decor.js";
 const DEG = Math.PI / 180;
 
 export type ShotState = {
-  pose: { position: ENU; orientation: Orientation; vfovDeg: number };
+  /** shift: where the optical axis sits off the frame's centre, in frame heights (a cropped photo). */
+  pose: { position: ENU; orientation: Orientation; vfovDeg: number; shift: { x: number; y: number } };
   envPhoto: number;
   targetPhoto: number;
+  /** 1 while the photo's foreground is left out of the projection. */
+  foregroundCut: number;
   fog: number;
   edges: number;
   floors: number;
@@ -32,9 +37,21 @@ export type ShotState = {
   endCard: number;
 };
 
-type Orbit = { tx: number; ty: number; tz: number; theta: number; phi: number; dist: number; roll: number; fov: number };
+type Orbit = {
+  tx: number;
+  ty: number;
+  tz: number;
+  theta: number;
+  phi: number;
+  dist: number;
+  roll: number;
+  fov: number;
+  /** Optical axis off the frame's centre, in frame heights. */
+  sx: number;
+  sy: number;
+};
 
-const CHANNELS: (keyof Orbit)[] = ["tx", "ty", "tz", "theta", "phi", "dist", "roll", "fov"];
+const CHANNELS: (keyof Orbit)[] = ["tx", "ty", "tz", "theta", "phi", "dist", "roll", "fov", "sx", "sy"];
 
 /** Fritsch–Carlson monotone cubic through (t, y): smooth, and never overshoots a hold. */
 export function monotoneSpline(ts: number[], ys: number[]): (t: number) => number {
@@ -108,10 +125,12 @@ export function photoOrbit(spec: BuildingSpec): Orbit {
     dist: df,
     roll: pose.orientation.rollDeg,
     fov: verticalFovDeg(pose.intrinsics),
+    sx: (pose.intrinsics.cx - pose.intrinsics.width / 2) / pose.intrinsics.height,
+    sy: (pose.intrinsics.cy - pose.intrinsics.height / 2) / pose.intrinsics.height,
   };
 }
 
-export function orbitPose(o: Orbit): { position: ENU; orientation: Orientation; vfovDeg: number } {
+export function orbitPose(o: Orbit): ShotState["pose"] {
   const th = o.theta * DEG;
   const ph = o.phi * DEG;
   const position = {
@@ -128,50 +147,51 @@ export function orbitPose(o: Orbit): { position: ENU; orientation: Orientation; 
     position,
     orientation: { headingDeg: heading < 0 ? heading + 360 : heading, pitchDeg: Math.asin(fz / n) / DEG, rollDeg: o.roll },
     vfovDeg: o.fov,
+    shift: { x: o.sx, y: o.sy },
   };
 }
 
 export type Timeline = { duration: number; at(t: number): ShotState };
 
-/** Vertical field of view of the orbit shots. */
-const ORBIT_FOV_DEG = 55;
+/** Vertical field of view of the moving shots. */
+const MOVE_FOV_DEG = 50;
 
-/**
- * Distance at which a building of horizontal radius r and height h fills
- * `fill` of a frame with this vertical field of view and aspect (width/height).
- * A tall 9:16 frame is narrow, so the width usually decides.
- */
-export function fitDistance(fovDeg: number, aspect: number, r: number, h: number, fill: number): number {
-  const tv = Math.tan((fovDeg * DEG) / 2);
-  const th = tv * aspect;
-  return Math.max(r / (th * fill), (0.5 * h + 0.3 * r) / (tv * fill));
-}
-
-export function makeTimeline(spec: BuildingSpec, plan: DesignPlan, aspect = 9 / 16): Timeline {
+export function makeTimeline(spec: BuildingSpec, plan: DesignPlan): Timeline {
   const start = photoOrbit(spec);
   const c = centroid(spec.target.ring);
   const h = spec.height.heightM;
-  const r = Math.max(...spec.target.ring.map((p) => Math.hypot(p.x - c.x, p.y - c.y)));
-  const fit = fitDistance(ORBIT_FOV_DEG, aspect, r, h, 0.82);
-  const around = (theta: number, phi: number, dist: number, tz: number, fov: number): Orbit => ({
-    tx: c.x,
-    ty: c.y,
-    tz,
-    theta: start.theta + theta,
-    phi,
-    dist,
-    roll: 0,
-    fov,
-  });
+  const reach = Math.hypot(c.x - spec.pose.position.x, c.y - spec.pose.position.y);
+  // Swing toward the way the main facade faces, so it turns to the camera.
+  const main = edges(spec.target.ring)[spec.mainFacade];
+  const toward = Math.sign(wrapDeg(Math.atan2(main.normal.x, main.normal.y) / DEG - start.theta)) || 1;
+  // Small moves: every metre the camera travels from the photo shows more of
+  // what the picture could not see. eyeM is the camera height to reach.
+  const near = (swingDeg: number, eyeM: number, share: number, tz: number): Orbit => {
+    const dist = reach * share;
+    return {
+      tx: c.x,
+      ty: c.y,
+      tz,
+      theta: start.theta + toward * swingDeg,
+      phi: Math.asin(Math.max(-0.9, Math.min(0.9, (eyeM - tz) / dist))) / DEG,
+      dist,
+      roll: 0,
+      fov: MOVE_FOV_DEG,
+      // Keep the photo's framing: the building low in the frame, under its sky.
+      sx: start.sx,
+      sy: Math.max(start.sy, 0.1),
+    };
+  };
+  const eye = spec.pose.position.z;
   const keys: [number, Orbit][] = [
     [0, start],
     [1.6, start],
-    [6.0, around(40, 14, fit, h * 0.45, ORBIT_FOV_DEG)],
-    [10.5, around(95, 22, fit, h * 0.5, ORBIT_FOV_DEG)],
-    [16.5, around(170, 38, fit * 0.85, h * 0.75, ORBIT_FOV_DEG)],
-    [19.6, around(255, 18, fit, h * 0.5, ORBIT_FOV_DEG)],
-    [22.6, { ...start, theta: start.theta + 360 }],
-    [27.5, { ...start, theta: start.theta + 360 }],
+    [6.0, near(5, eye + 2, 0.9, h * 0.85)],
+    [10.5, near(8, (eye + h) / 2, 0.78, h * 0.9)],
+    [16.5, near(4, h + 6, 0.58, h)],
+    [19.6, near(-4, h + 3, 0.68, h * 0.9)],
+    [22.6, start],
+    [27.5, start],
   ];
   const times = keys.map((k) => k[0]);
   const splines = Object.fromEntries(
@@ -212,6 +232,7 @@ export function makeTimeline(spec: BuildingSpec, plan: DesignPlan, aspect = 9 / 
         // The photo stays on everything it saw; facades fill in the rest.
         envPhoto: 1,
         targetPhoto: 1,
+        foregroundCut: ramp(t, 1.7, 3.2) - ramp(t, 20.8, 22.4),
         fog: 0.85 * (ramp(t, 2.6, 5.4) - ramp(t, 20.2, 22.0)),
         edges: ramp(t, 4.6, 6.6) - ramp(t, 20.0, 21.6),
         floors: ramp(t, 7.2, 9.6),

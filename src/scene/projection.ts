@@ -36,6 +36,10 @@ export type ProjectorUniforms = {
   photoDepthOn: Uniform<number>;
   /** Multiplies the photo, to take it into the evening. */
   photoTint: Uniform<Color>;
+  /** Picture height (0 bottom, 1 top) below which the photo shows the foreground: cars, people, the road. */
+  photoCutV: Uniform<number>;
+  /** 1 leaves the foreground out of the projection: once the camera moves it would smear across the ground. */
+  photoCutOn: Uniform<number>;
 };
 
 const VERTEX_HEAD = `
@@ -58,6 +62,8 @@ uniform float photoNear;
 uniform float photoFar;
 uniform float photoDepthOn;
 uniform vec3 photoTint;
+uniform float photoCutV;
+uniform float photoCutOn;
 varying vec3 vPhotoWorld;
 varying vec3 vPhotoNormal;
 float photoLinearDepth(float d) {
@@ -75,16 +81,19 @@ const FRAGMENT_BODY = `
     vec3 photoNdc = photoClip.xyz / photoClip.w;
     vec2 photoUv = photoNdc.xy * 0.5 + 0.5;
     photoVis = 1.0 - smoothstep(0.99, 1.0, max(abs(photoNdc.x), abs(photoNdc.y)));
+    photoVis *= 1.0 - photoCutOn * (1.0 - smoothstep(photoCutV - 0.006, photoCutV + 0.006, photoUv.y));
     #ifdef PHOTO_FACING
       float photoFacing = dot(normalize(vPhotoNormal), normalize(photoCamPos - vPhotoWorld));
       photoVis *= smoothstep(0.0, 0.08, photoFacing);
     #endif
+    #ifndef PHOTO_NO_OCCLUSION
     if (photoDepthOn > 0.5) {
       float photoStored = photoLinearDepth(texture2D(photoDepth, photoUv).x);
       float photoMine = photoLinearDepth(photoNdc.z * 0.5 + 0.5);
       float photoSlack = 0.4 + photoMine * 0.012;
       photoVis *= 1.0 - smoothstep(photoSlack, photoSlack * 2.0, photoMine - photoStored);
     }
+    #endif
     photoColor = texture2D(photoMap, photoUv).rgb * photoTint;
   }
   gl_FragColor.rgb = mix(gl_FragColor.rgb, photoColor, clamp(photoMix * photoVis, 0.0, 1.0));
@@ -121,6 +130,8 @@ export class PhotoProjector {
       photoFar: { value: camera.far },
       photoDepthOn: { value: 0 },
       photoTint: { value: new Color(1, 1, 1) },
+      photoCutV: { value: 0 },
+      photoCutOn: { value: 0 },
     };
   }
 
@@ -140,8 +151,13 @@ export class PhotoProjector {
     this.uniforms.photoDepthOn.value = 1;
   }
 
-  /** Adds the projection to a built-in material; `mix` fades it in and out. */
-  patch(material: Material, mix: Uniform<number>, facingTest: boolean): void {
+  /**
+   * Adds the projection to a built-in material; `mix` fades it in and out.
+   * Without the occlusion test a surface takes the photo even where something
+   * stood in front of it: right for the sky, which a moving camera uncovers
+   * just above rooftops where the picture shows sky too.
+   */
+  patch(material: Material, mix: Uniform<number>, facingTest: boolean, occlusionTest = true): void {
     const shared = this.uniforms;
     material.onBeforeCompile = (shader) => {
       Object.assign(shader.uniforms, shared, { photoMix: mix });
@@ -149,10 +165,13 @@ export class PhotoProjector {
         .replace("#include <common>", `#include <common>\n${VERTEX_HEAD}`)
         .replace("#include <project_vertex>", `#include <project_vertex>\n${VERTEX_BODY}`);
       shader.fragmentShader = shader.fragmentShader
-        .replace("#include <common>", `#include <common>\n${facingTest ? "#define PHOTO_FACING\n" : ""}${FRAGMENT_HEAD}`)
+        .replace(
+          "#include <common>",
+          `#include <common>\n${facingTest ? "#define PHOTO_FACING\n" : ""}${occlusionTest ? "" : "#define PHOTO_NO_OCCLUSION\n"}${FRAGMENT_HEAD}`,
+        )
         .replace("#include <tonemapping_fragment>", `#include <tonemapping_fragment>\n${FRAGMENT_BODY}`);
     };
-    material.customProgramCacheKey = () => `photo-projection-${facingTest ? 1 : 0}`;
+    material.customProgramCacheKey = () => `photo-projection-${facingTest ? 1 : 0}${occlusionTest ? 1 : 0}`;
     material.needsUpdate = true;
   }
 

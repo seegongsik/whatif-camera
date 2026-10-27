@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { rankCandidates } from "../src/estimate/identify.js";
 import { register } from "../src/estimate/register.js";
 import { estimateHeight } from "../src/estimate/height.js";
+import { sameBuilding } from "../src/estimate/spec.js";
 import { isOutside, rect, TARGET, TRUE_HEIGHT_M, trueMarks, truePose } from "./scene-fixture.js";
 
 const NEIGHBOURS = [rect(-22, 44, 14, 14, 20), rect(30, 52, 12, 16, 20), rect(6, 80, 30, 14, 20), rect(-8, -30, 20, 10, 0)];
@@ -99,5 +100,16 @@ describe("identify without a compass", () => {
     // The one behind the camera is now a candidate too.
     expect(ids).toContain("b0");
     expect(ids).toContain("b4");
+  });
+});
+
+describe("outlines of the same building", () => {
+  const outline = rect(0, 0, 40, 20, 0);
+  it("treats a part as large as the building as the building itself", () => {
+    expect(sameBuilding(outline, rect(0.3, -0.2, 39, 19.5, 0))).toBe(true);
+  });
+  it("keeps a tower inside the building and a separate building next door", () => {
+    expect(sameBuilding(outline, rect(2, 1, 8, 8, 0))).toBe(false);
+    expect(sameBuilding(outline, rect(45, 0, 40, 20, 0))).toBe(false);
   });
 });

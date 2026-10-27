@@ -20,7 +20,7 @@ export type FacadeUniforms = {
 export const FACADE_BAY_M = 3.6;
 
 /** Muted wall colours for neighbours, picked per building. */
-const NEIGHBOUR_WALLS = ["#d6cfc2", "#c9c1b3", "#bdb3a4", "#e0dbd2", "#b9a593", "#cfd1d2", "#c2b8a8", "#a89584"].map((hex) => new Color(hex));
+const NEIGHBOUR_WALLS = ["#d9d6cf", "#cfcbc3", "#c6c1b8", "#e2dfd8", "#c9c4bb", "#d4d2cd", "#bfbab2", "#cdc5b8"].map((hex) => new Color(hex));
 
 export function facadeUniforms(): FacadeUniforms {
   return {
@@ -37,7 +37,10 @@ export function neighbourWall(id: string): Color {
   return NEIGHBOUR_WALLS[(hash >>> 0) % NEIGHBOUR_WALLS.length];
 }
 
-/** Stores one building's wall colour, roof height, storey height and lit-window seed on its vertices. */
+/**
+ * Stores one building's wall colour, roof height, storey height and lit-window
+ * seed on its vertices. A storey height of 0 draws a plain wall.
+ */
 export function setFacade(geometry: BufferGeometry, wall: Color, topM: number, storeyM: number, seed: number): void {
   const count = geometry.getAttribute("position").count;
   const walls = new Float32Array(count * 3);
@@ -90,9 +93,9 @@ const FRAGMENT_COLOR = `
 vec3 facadeN = normalize(vFacadeNormal);
 float facadeIsRoof = smoothstep(0.4, 0.6, abs(facadeN.y));
 vec2 facadeAlong = normalize(vec2(-facadeN.z, facadeN.x) + vec2(1e-6, 0.0));
-vec2 facadeCell = vec2(dot(vFacadeWorld.xz, facadeAlong) / ${FACADE_BAY_M.toFixed(2)}, vFacadeWorld.y / vFacadeGrid.y);
+vec2 facadeCell = vec2(dot(vFacadeWorld.xz, facadeAlong) / ${FACADE_BAY_M.toFixed(2)}, vFacadeWorld.y / max(vFacadeGrid.y, 0.5));
 float facadeWindow = facadeBand(facadeCell.x, 0.2, 0.8) * facadeBand(facadeCell.y, 0.3, 0.86)
-  * step(vFacadeWorld.y, vFacadeGrid.x - 1.0) * (1.0 - facadeIsRoof);
+  * step(vFacadeWorld.y, vFacadeGrid.x - 1.0) * (1.0 - facadeIsRoof) * step(0.5, vFacadeGrid.y);
 float facadeLit = facadeWindow * step(0.55, fract(sin(dot(floor(facadeCell), vec2(127.1, 311.7)) + vFacadeGrid.z * 13.7) * 43758.5453));
 diffuseColor.rgb = mix(mix(vFacadeWall, facadeGlass, facadeWindow), facadeRoof, facadeIsRoof);
 `;

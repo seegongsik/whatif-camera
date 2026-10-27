@@ -15,6 +15,11 @@ export type CaptureMeta = {
   tiltSource?: "gravity sensor" | "photo verticals" | "preset" | "synthetic";
   /** Field of view across the long side of the picture. */
   fovLongDeg: number;
+  /**
+   * Where the optical axis meets the picture, in pixels, when the picture is a
+   * crop (a screenshot of a photo); the centre otherwise.
+   */
+  principalPoint?: { u: number; v: number };
   fovSource: "assumption" | "EXIF" | "preset" | "synthetic";
   takenAt: string;
   /** Raw sensor values, kept for checking the orientation on real phones. */
