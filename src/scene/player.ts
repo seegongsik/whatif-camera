@@ -16,6 +16,7 @@ import type { DesignPlan } from "../design/plan.js";
 import type { Layout } from "../design/layout.js";
 import { Decor, type DecorChannel } from "./decor.js";
 import { Dimensions, DIM_COLOR } from "./dims.js";
+import { fitText } from "./fit-text.js";
 import { quaternionFor, toWorld } from "./coords.js";
 import { makeTimeline, type ShotState, type Timeline } from "./timeline.js";
 import { buildWorld, LAYER_ADDED, SKY_HORIZON, type World } from "./world.js";
@@ -165,20 +166,31 @@ export class Player {
     this.onTime?.(this.time, this.timeline.duration);
   }
 
-  private pill(text: string, x: number, y: number, size: number, bg: string, fg: string, align: "center" | "left" = "center") {
+  /**
+   * A rounded label whose first line is centred on y. Text too wide for the
+   * frame shrinks, then breaks onto a second line below. Returns the bottom edge.
+   */
+  private pill(text: string, x: number, y: number, size: number, bg: string, fg: string, align: "center" | "left" = "center"): number {
     const ctx = this.ctx;
-    ctx.font = `600 ${size}px "Inter", system-ui, -apple-system, "Segoe UI", sans-serif`;
-    const w = ctx.measureText(text).width + size * 1.1;
-    const h = size * 1.75;
+    const labelWidth = (line: string, px: number) => {
+      ctx.font = `600 ${px}px "Inter", system-ui, -apple-system, "Segoe UI", sans-serif`;
+      return ctx.measureText(line).width + px * 1.1;
+    };
+    const fit = fitText(text, size, this.width * 0.92, labelWidth);
+    const w = Math.max(...fit.lines.map((line) => labelWidth(line, fit.size)));
+    const lineHeight = fit.size * 1.2;
+    const top = y - fit.size * 0.875;
+    const h = fit.size * 1.75 + lineHeight * (fit.lines.length - 1);
     const left = align === "center" ? x - w / 2 : x;
     ctx.fillStyle = bg;
     ctx.beginPath();
-    ctx.roundRect(left, y - h / 2, w, h, h / 2);
+    ctx.roundRect(left, top, w, h, fit.size * 0.875);
     ctx.fill();
     ctx.fillStyle = fg;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(text, left + w / 2, y + size * 0.04);
+    fit.lines.forEach((line, i) => ctx.fillText(line, left + w / 2, y + i * lineHeight + fit.size * 0.04));
+    return top + h;
   }
 
   private composite(s: ShotState): void {
@@ -227,8 +239,8 @@ export class Player {
     if (s.caption && s.caption.alpha > 0.01) {
       ctx.globalAlpha = s.caption.alpha;
       const size = Math.round(H * 0.03);
-      this.pill(s.caption.text, W / 2, H * 0.86, size, "rgba(12,12,12,0.72)", "#fff");
-      if (s.caption.sub) this.pill(s.caption.sub, W / 2, H * 0.86 + size * 2.1, Math.round(size * 0.55), "rgba(255,255,255,0.85)", "#222");
+      const bottom = this.pill(s.caption.text, W / 2, H * 0.86, size, "rgba(12,12,12,0.72)", "#fff");
+      if (s.caption.sub) this.pill(s.caption.sub, W / 2, bottom + size * 1.225, Math.round(size * 0.55), "rgba(255,255,255,0.85)", "#222");
       ctx.globalAlpha = 1;
     }
 
