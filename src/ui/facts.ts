@@ -45,8 +45,11 @@ export function factsPanel(input: SceneInput, spec: BuildingSpec, plan: DesignPl
     input.capture.fovSource === "assumption" ? h("li", { text: `Field of view ${input.capture.fovLongDeg}° across the long side (typical phone main camera).` }) : null,
     H.floorsSource !== "OpenStreetMap building:levels" ? h("li", { text: `${fmt(ASSUMED_FLOOR_HEIGHT_M)} m per floor.` }) : null,
     H.cameraHeightSource === "assumption" ? h("li", { text: `Phone at ${fmt(ASSUMED_CAMERA_HEIGHT_M)} m (wall foot hidden).` }) : null,
-    spec.neighbours.some((n) => n.heightSource !== "OpenStreetMap height" && n.heightSource !== "synthetic")
-      ? h("li", { text: `${spec.neighbours.filter((n) => n.heightSource !== "OpenStreetMap height" && n.heightSource !== "synthetic").length} neighbouring buildings drawn at an assumed height (context only).` })
+    spec.neighbours.some((n) => n.heightSource === "assumption")
+      ? h("li", { text: `${spec.neighbours.filter((n) => n.heightSource === "assumption").length} neighbouring buildings drawn at an assumed height (context only).` })
+      : null,
+    spec.neighbours.some((n) => n.heightSource === "map tiles (approximate)")
+      ? h("li", { text: `${spec.neighbours.filter((n) => n.heightSource === "map tiles (approximate)").length} neighbouring buildings drawn at the map tiles' approximate height (context only).` })
       : null,
     h("li", { text: "Decorations are an idea, not a plan: a real roof garden needs a structural check." }),
   );

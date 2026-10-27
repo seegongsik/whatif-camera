@@ -63,7 +63,8 @@ When the design model is configured, the photo (downscaled to 1024 px) and the m
 
 | Data | Source | License |
 | --- | --- | --- |
-| Building footprints, `height`, `building:levels` | OpenStreetMap via the Overpass API (`OVERPASS_URL`, default `overpass-api.de`) | ODbL, "© OpenStreetMap contributors" shown on screen and in videos |
+| Building footprints, `height`, `building:levels` | OpenStreetMap via the Overpass API: `overpass-api.de`, then `overpass.private.coffee` (8 s each) | ODbL, "© OpenStreetMap contributors" shown on screen and in videos |
+| Fallback footprints when every Overpass server is full | OpenStreetMap vector tiles from OpenFreeMap (OpenMapTiles schema, zoom 14, `building` layer); their heights are approximate and used for neighbours only | ODbL; "© OpenStreetMap contributors · OpenMapTiles · OpenFreeMap" |
 | Sun position | Astronomical Almanac low-precision formulas | computed |
 
 ## Assumptions
@@ -89,7 +90,8 @@ Server side only; `/api/status` returns booleans.
 | --- | --- |
 | `BASETEN_API_KEY` | Muse Spark Open on Baseten |
 | `MODEL_API_KEY` (or `META_API_KEY`) | Meta Model API (SAM 3.1), not called yet |
-| `OVERPASS_URL` | another Overpass API instance (HTTPS) |
+| `OVERPASS_URLS` (or `OVERPASS_URL`) | Overpass API instances to try first, comma-separated, HTTPS only |
+| `FOOTPRINT_TILES` | `off` disables the vector-tile fallback |
 | `DAILY_FOOTPRINT_CALL_CAP`, `DAILY_SPARK_CALL_CAP` | per-instance daily caps (defaults 2000 and 300) |
 
 ## Open source used
@@ -109,5 +111,5 @@ All application code was written in this repository during the hackathon (from 2
 - OpenStreetMap coverage and tags vary by place; where the footprint is missing the app cannot place the photo.
 - Portrait capture only. The compass is magnetic; the registration absorbs the declination along with the compass error.
 - Interior layouts are not shown: they cannot be seen from outside.
-- The public Overpass instance has usage limits; cache or self-host for heavy use.
+- The public Overpass servers are often full (on 2026-10-27 overpass-api.de answered "at capacity" to every lookup from the deployment); lookups fall back to a second server and then to vector tiles. A building that straddles a tile border is cut in two in the tile fallback.
 - Real-phone checks of the orientation on iOS and Android, real buildings with known heights and SAM 3.1 automatic marks are next (`PROGRESS.md`).

@@ -4,7 +4,7 @@ import { buildOverpassQuery, parseLengthTag, parseOverpass } from "../src/data/o
 import { localFrame } from "../src/geo/enu.js";
 import { toLocalFootprints } from "../src/data/footprints.js";
 import { handleDesign, handleFootprints, handleStatus } from "../server/routes.js";
-import { clearFootprintCacheForTests } from "../server/overpass-client.js";
+import { clearFootprintCachesForTests } from "../server/footprint-sources.js";
 import { resetLimitsForTests } from "../server/limits.js";
 import { firstJsonObject } from "../server/spark.js";
 import { buildDesignMessages } from "../server/design.js";
@@ -49,7 +49,7 @@ describe("overpass parsing (SYNTHETIC fixture)", () => {
 
 describe("routes", () => {
   beforeEach(() => {
-    clearFootprintCacheForTests();
+    clearFootprintCachesForTests();
     resetLimitsForTests();
   });
 
