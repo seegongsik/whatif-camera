@@ -20,7 +20,9 @@ export const TILE_ATTRIBUTION = "© OpenStreetMap contributors (ODbL) · OpenMap
 export const USER_AGENT = "whatif-camera/0.1 (hackathon prototype; github.com/seegongsik/whatif-camera)";
 
 const CACHE_MS = 15 * 60 * 1000;
-const OVERPASS_TIMEOUT_MS = 8_000;
+const OVERPASS_TIMEOUT_MS = 6_000;
+/** How much longer an Overpass answer is awaited once the tiles have answered. */
+const TILES_GRACE_MS = 1_500;
 const TILE_TIMEOUT_MS = 6_000;
 const TILE_ZOOM = 14;
 
@@ -36,7 +38,7 @@ export class UpstreamError extends Error {
   }
 }
 
-type Deps = { env?: EnvMap; fetchImpl?: typeof fetch; now?: () => number };
+type Deps = { env?: EnvMap; fetchImpl?: typeof fetch; now?: () => number; graceMs?: number };
 
 /** OVERPASS_URLS (comma-separated) or OVERPASS_URL first, then the defaults; HTTPS only. */
 export function overpassUrls(env: EnvMap): string[] {
@@ -140,23 +142,46 @@ export async function lookupFootprints(center: LatLon, radiusM: number, deps: De
   if (hit && now() - hit.at < CACHE_MS) return hit.value;
 
   const failures: string[] = [];
+  // The tiles are asked at once, in parallel; Overpass is preferred (exact ways
+  // and tags) but not waited for long once the tiles have answered.
+  const tiles: Promise<FootprintSet | null> =
+    env.FOOTPRINT_TILES === "off"
+      ? Promise.resolve(null)
+      : fromTiles(center, radius, deps).catch((error: unknown) => {
+          failures.push(`tiles: ${error instanceof Error ? error.message : String(error)}`);
+          return null;
+        });
+  let tilesAnswered = false;
+  void tiles.then((t) => {
+    tilesAnswered = t !== null;
+  });
+  const grace = deps.graceMs ?? TILES_GRACE_MS;
+  type Outcome = { kind: "overpass"; value: FootprintSet } | { kind: "error"; message: string } | { kind: "tiles-first" };
   for (const url of overpassUrls(env)) {
-    try {
-      const value = await fromOverpass(url, center, radius, deps);
-      cache.set(key, { at: now(), value });
-      return value;
-    } catch (error) {
-      failures.push(`${hostOf(url)}: ${error instanceof Error ? error.message : String(error)}`);
+    if (tilesAnswered) break;
+    const attempt: Promise<Outcome> = fromOverpass(url, center, radius, deps).then(
+      (value) => ({ kind: "overpass", value }),
+      (error: unknown) => ({ kind: "error", message: error instanceof Error ? error.message : String(error) }),
+    );
+    const tilesFirst: Promise<Outcome> = tiles.then((t) =>
+      t ? new Promise<Outcome>((resolve) => setTimeout(() => resolve({ kind: "tiles-first" }), grace)) : new Promise<Outcome>(() => undefined),
+    );
+    const outcome = await Promise.race([attempt, tilesFirst]);
+    if (outcome.kind === "overpass") {
+      cache.set(key, { at: now(), value: outcome.value });
+      return outcome.value;
     }
+    if (outcome.kind === "error") {
+      failures.push(`${hostOf(url)}: ${outcome.message}`);
+      continue;
+    }
+    failures.push(`${hostOf(url)}: no answer within ${grace} ms of the tiles`);
+    break;
   }
-  if (env.FOOTPRINT_TILES !== "off") {
-    try {
-      const value = await fromTiles(center, radius, deps);
-      cache.set(key, { at: now(), value });
-      return value;
-    } catch (error) {
-      failures.push(`tiles: ${error instanceof Error ? error.message : String(error)}`);
-    }
+  const fromTileSet = await tiles;
+  if (fromTileSet) {
+    cache.set(key, { at: now(), value: fromTileSet });
+    return fromTileSet;
   }
   throw new UpstreamError(502, `No footprint source answered. ${failures.join(" | ")}`);
 }

@@ -9,7 +9,8 @@
   1. overpass-api.de(8초)
   2. overpass.private.coffee(8초)
   3. OpenFreeMap 벡터 타일(줌 14, OpenMapTiles `building` 층, CDN이라 과부하에 강함)
-- 타일의 `render_height`는 OSM에 높이가 없을 때 기본값이 들어가므로 「근사」로만 쓰고 이웃 건물 높이에만 쓴다. 타일 경계에 걸친 건물은 잘려서 들어온다.
+- 타일의 `render_height`는 OSM에 높이가 없을 때 기본값 5 m가 들어간다. 그래서 정확히 5 m는 「모름」으로 보고, 나머지는 「근사」로만 쓴다. 이웃 건물 높이, 그리고 대상 건물의 「지도상 높이」 비교 표시에만 쓴다. 타일 경계에 걸친 건물은 잘려서 들어온다.
+- 타일은 Overpass와 동시에 요청한다. Overpass(정확한 OSM 태그)를 먼저 쓰되, 타일이 온 뒤로는 1.5초만 더 기다린다.
 - 서버 응답이 200이어도 `remark`(시간 초과 등)만 있고 요소가 없으면 실패로 보고 다음 출처로 넘어간다.
 - 한국 지역 OSM 건물 윤곽 범위: 확인 필요(이 작업 환경은 overpass-api.de 접속이 막혀 직접 못 봄).
 
@@ -36,6 +37,7 @@
 
 ## D6. 메타 모델 역할
 - Muse Spark Open(`meta-models/muse-spark-open-1026`, Baseten): 사진과 측정값을 보고 메뉴에서 고르기만 한다(데크·화분·나무·퍼골라·벤치·전구·덩굴·창문 화분·차양·벽 조명·색·자막). 좌표·크기는 `layout.ts`가 정하고, 글 속 숫자는 지운다. 키가 없거나 실패하면 로컬 계획으로 바꾸고 그 이유를 화면에 쓴다.
+- Muse Spark Open은 항상 추론하고 추론 토큰이 `max_tokens`에 들어간다(공급자 문서: Groq, Vercel AI Gateway). 1,200 한도에서는 답이 비었다(2026-10-27 운영 실측). `max_tokens` 6,000, `reasoning_effort: "low"`로 요청하고, 서버가 `reasoning_effort`를 모르면 빼고 다시 요청한다.
 - SAM 3.1: 다음 단계(탭 → 건물 마스크 → 바깥 모서리 자동 표시, 사람·번호판 흐리기). Meta 크레딧 확인 전에는 호출하지 않는다.
 - 모델 이름·주소·요청 형식은 anchor-orbit-risk에서 확인된 사실만 참고했고 코드는 새로 썼다.
 

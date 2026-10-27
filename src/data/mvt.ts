@@ -186,6 +186,9 @@ export function latLonToTile(z: number, p: LatLon): { x: number; y: number } {
   };
 }
 
+/** render_height the OpenMapTiles schema fills in when a building has no height or levels in OpenStreetMap. */
+export const TILE_DEFAULT_HEIGHT_M = 5;
+
 /** Building footprints of the "building" layer of one tile; multipolygon parts become separate records. */
 export function buildingsFromTile(tile: Uint8Array, z: number, tx: number, ty: number): FootprintRecord[] {
   const layer = readLayers(tile).find((l) => l.name === "building");
@@ -195,7 +198,9 @@ export function buildingsFromTile(tile: Uint8Array, z: number, tx: number, ty: n
     if (f.type !== 3) return;
     const props: Record<string, Value | undefined> = {};
     for (let k = 0; k + 1 < f.tags.length; k += 2) props[layer.keys[f.tags[k]]] = layer.values[f.tags[k + 1]];
-    const height = typeof props.render_height === "number" && props.render_height > 0 ? props.render_height : undefined;
+    // OpenMapTiles writes 5 m when OpenStreetMap has neither height nor levels: that is "unknown".
+    const raw = props.render_height;
+    const height = typeof raw === "number" && raw > 0 && raw !== TILE_DEFAULT_HEIGHT_M ? raw : undefined;
     let part = 0;
     for (const ring of polygonRings(f.geometry)) {
       if (ringArea(ring) <= 0) continue;
