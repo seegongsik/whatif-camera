@@ -16,6 +16,11 @@ export type BuildingTags = {
   minHeightM?: number;
   /** OSM roof:shape. */
   roofShape?: string;
+  /**
+   * Height from a vector tile (OpenMapTiles render_height). Tiles fill in a
+   * default when OSM has none, so it is only ever used as an approximation.
+   */
+  tileHeightM?: number;
 };
 
 export type FootprintRecord = {

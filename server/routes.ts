@@ -7,7 +7,7 @@ import { MAX_RADIUS_M } from "../src/data/overpass.js";
 import { designWithSpark } from "./design.js";
 import { keyPresence, type EnvMap } from "./keys.js";
 import { takeCall } from "./limits.js";
-import { fetchFootprints, UpstreamError } from "./overpass-client.js";
+import { lookupFootprints, UpstreamError } from "./footprint-sources.js";
 import { SparkError } from "./spark.js";
 
 /** Large enough for a 1280 px JPEG, well under the 4.5 MB function body limit. */
@@ -39,7 +39,7 @@ export async function handleFootprints(request: Request, deps: Deps = {}): Promi
     return json({ error: "daily footprint lookups for this server instance are used up" }, 429);
   }
   try {
-    const set = await fetchFootprints({ lat, lon }, radius, deps);
+    const set = await lookupFootprints({ lat, lon }, radius, deps);
     return json(set, 200, { "Cache-Control": "public, max-age=3600, s-maxage=86400" });
   } catch (error) {
     if (error instanceof UpstreamError) return json({ error: error.message }, error.status);

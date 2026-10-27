@@ -54,7 +54,8 @@ export function locate(capture: CaptureMeta, photo: { width: number; height: num
 export function predictMarks(target: LocalFootprint, pose: CameraPose): CornerMarks {
   const ring = target.ring;
   const c = centroid(ring);
-  const guessH = target.tags.heightM ?? (target.tags.levels ? target.tags.levels * ASSUMED_FLOOR_HEIGHT_M : 12);
+  const guessH =
+    target.tags.heightM ?? (target.tags.levels ? target.tags.levels * ASSUMED_FLOOR_HEIGHT_M : (target.tags.tileHeightM ?? 12));
   const cam = { x: pose.position.x, y: pose.position.y };
   // Outer vertices by angle around the view of the centroid.
   const base = Math.atan2(c.x - cam.x, c.y - cam.y);
@@ -96,6 +97,7 @@ export function predictMarks(target: LocalFootprint, pose: CameraPose): CornerMa
 export type NeighbourSource =
   | "OpenStreetMap height"
   | "OpenStreetMap levels × assumed storey height"
+  | "map tiles (approximate)"
   | "assumption"
   | "synthetic";
 
@@ -212,6 +214,9 @@ export function buildSpec(args: {
           heightM: f.tags.levels * ASSUMED_FLOOR_HEIGHT_M,
           heightSource: "OpenStreetMap levels × assumed storey height" as const,
         };
+      }
+      if (f.tags.tileHeightM !== undefined) {
+        return { id: f.id, ring: f.ring, heightM: f.tags.tileHeightM, heightSource: "map tiles (approximate)" as const };
       }
       return { id: f.id, ring: f.ring, heightM: ASSUMED_NEIGHBOUR_HEIGHT_M, heightSource: "assumption" as const };
     });

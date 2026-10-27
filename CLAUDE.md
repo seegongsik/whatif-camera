@@ -19,6 +19,8 @@ What If Camera: point a phone at a building; one photo plus the map becomes a 3D
 
 `npm test` · `npm run lint` · `npm run build` (runs `tsc --noEmit` first) · `npm run check:api` (per-file transpile of the Vercel functions) · `npm run dev` (`?demo=synthetic`, `?preset=/presets/x.json&autoplay=1`, `&size=1080`, `?fov=`).
 
+In the Claude Code cloud environment, start the dev server with `NODE_USE_ENV_PROXY=1` so the API routes' own `fetch` goes through the session proxy; each outside host (Overpass, OpenFreeMap, Baseten) must be on the environment's allowed domains. The deployment is https://whatif-camera.vercel.app.
+
 ## Map
 
 - `src/geo/` local east-north metres (`enu.ts`), polygons, sun position.
@@ -28,4 +30,4 @@ What If Camera: point a phone at a building; one photo plus the map becomes a 3D
 - `src/scene/` three.js: photo projection (`projection.ts`), the world, dimension lines, decorations, the shot list (`timeline.ts`), the player and recorder (`player.ts`).
 - `src/synthetic/` the SYNTHETIC scene with a rendered photo and known truth.
 - `src/capture/`, `src/preset/`, `src/ui/` phone sensors and camera, EXIF, presets, the page.
-- `server/` Overpass client, Baseten client, design prompt, routes, call caps. `api/` holds one Vercel function per route.
+- `server/` footprint sources (Overpass servers, then vector tiles via `src/data/mvt.ts`), Baseten client, design prompt, routes, call caps. `api/` holds one Vercel function per route.

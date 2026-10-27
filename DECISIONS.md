@@ -5,6 +5,12 @@
 - 건물 윤곽(탑뷰)은 OpenStreetMap을 Overpass API로 서버에서 가져온다(`/api/footprints`, 반경 150 m, 인스턴스별 15분 캐시). `height`·`building:levels` 태그가 있으면 쓴다.
 - 라이선스 ODbL: 「© OpenStreetMap contributors」를 화면과 녹화 영상에 항상 넣는다.
 - Overture Maps(메타 공동 창립, OSM + ML 윤곽)는 다음 후보. 지금은 GeoParquet라 바로 쓰기 어렵다.
+- 2026-10-27 배포본(https://whatif-camera.vercel.app) 실측: 서울 3곳 조회가 모두 실패. overpass-api.de가 「at capacity, request queue is full」(502)이나 28초 무응답. 그래서 조회 순서를 바꿈:
+  1. overpass-api.de(8초)
+  2. overpass.private.coffee(8초)
+  3. OpenFreeMap 벡터 타일(줌 14, OpenMapTiles `building` 층, CDN이라 과부하에 강함)
+- 타일의 `render_height`는 OSM에 높이가 없을 때 기본값이 들어가므로 「근사」로만 쓰고 이웃 건물 높이에만 쓴다. 타일 경계에 걸친 건물은 잘려서 들어온다.
+- 서버 응답이 200이어도 `remark`(시간 초과 등)만 있고 요소가 없으면 실패로 보고 다음 출처로 넘어간다.
 - 한국 지역 OSM 건물 윤곽 범위: 확인 필요(이 작업 환경은 overpass-api.de 접속이 막혀 직접 못 봄).
 
 ## D2. 탑뷰 + 프론트뷰 결합 = 지도 윤곽이 사진의 자

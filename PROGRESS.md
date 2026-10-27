@@ -1,5 +1,26 @@
 # PROGRESS
 
+## 2026-10-27 (KST) · 1일 차 밤: 배포본 실측, 건물 조회 예비 경로
+
+### 한 일
+- PR #1 머지(민우 요청, Vercel 임포트용). 배포 주소 https://whatif-camera.vercel.app, 이 작업 환경에서 접속 확인.
+- 배포본 `/api/status`: `basetenApiKeyConfigured: false`, `modelApiKeyConfigured: false`(Vercel에 키 아직 없음).
+- 배포본으로 서울 시청·강남역·망원동 건물 조회 6번이 전부 실패. overpass-api.de가 「서버 용량 초과, 대기열 가득 참」(502) 또는 28초 무응답(DECISIONS D1).
+- 조회를 예비 경로로 바꿈: overpass-api.de → overpass.private.coffee → OpenFreeMap 벡터 타일. 타일 해석기(`src/data/mvt.ts`)를 새로 씀.
+- 이 작업 환경에서 개발 서버를 `NODE_USE_ENV_PROXY=1`로 띄워야 서버 쪽 fetch가 프록시를 탐(Node 22.22).
+
+### 실제로 돌린 값
+- `npm test` 10파일 64시험 통과, lint·build·check:api 통과.
+- 이 환경의 개발 서버로 서울 시청 조회: overpass-api.de 8초 시간 초과, private.coffee와 tiles.openfreemap.org는 허용 도메인 아님(403). 전체 실패까지 8.5초, 오류 문구에 세 출처가 다 나옴.
+
+### 막힌 일
+- `overpass.private.coffee`, `tiles.openfreemap.org`가 이 환경 허용 도메인에 없어 실제 응답 확인 못 함(민우에게 추가 요청).
+- 실제 OpenFreeMap 타일의 층 이름·속성(`building`, `render_height`)은 OpenMapTiles 규격대로 짰고 합성 타일로만 시험함. 실제 타일로 확인 필요.
+
+### 다음 일
+- 도메인이 열리면 서울 3곳을 다시 조회해 출처별 응답·건물 수·`building:levels` 비율 기록.
+- 민우: Vercel에 `BASETEN_API_KEY` 넣고 재배포 → Muse Spark 실호출 확인.
+
 ## 2026-10-27 (KST) · 1일 차: 시험 제작 (Claude Code)
 
 > 민우 결정: 「응 시작해줘」. 데모는 사진+좌표가 주어진 환경(프리셋)에서, 실제로도 작동해야 함. 10/30 점검 때 anchor-orbit-risk와 비교해 갈지 결정.
