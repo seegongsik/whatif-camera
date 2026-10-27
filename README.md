@@ -1,0 +1,113 @@
+# What If Camera
+
+Point your phone at a building. One photo and the map turn it into a 3D model with its measurements, the camera flies around it, and then it shows what the building could become: a garden on the roof, green climbing up the walls, warm light after sunset. The result is a 9:16 video made for sharing.
+
+Entry for the Meta Global AI Developer Hackathon (October to November 2026). Operator: Minwoo Kwon (`seegongsik`). License: MIT.
+
+Heights, floors and designs are estimates and ideas, shown as such. A real roof garden needs a structural check.
+
+![Photo, 3D model with dimensions, roof garden, evening, before and after (SYNTHETIC scene)](docs/screenshots/2026-10-27-synthetic-model-dimensions.jpg)
+
+## The idea: the top view is the ruler for the front view
+
+A photo alone has no scale. The map does: the building's footprint (the top view) says how wide each wall is and where its corners stand. The photo (the front view) says in which direction each corner lies and how high the roof line rises. Put together:
+
+1. The two outer vertical edges of the building are seen a certain angle apart. Every camera position on one circle sees them that far apart; the footprint fixes the circle, so the distance to the building is known.
+2. The roof is taken to stand at the same height at both outer edges (a flat roof, an assumption). That fixes how much nearer one edge is than the other, and with it the camera's place on the circle.
+3. If two sides show, a fifth mark on the near corner pins the position and the heading down independently (three-point resection).
+4. With the distances known, height = distance × (tan of the angle up to the roof line − tan of the angle down to the wall foot).
+
+GPS and compass only seed this. They enter as priors with their own uncertainty, so a GPS fix 9 m off or a compass 11° off is corrected by the picture rather than trusted (see the synthetic check below).
+
+## What it does
+
+1. **Capture**: the camera with a live readout of heading, tilt and GPS accuracy. The still keeps the GPS fix, the compass heading and the gravity tilt. Without motion sensors (or for an uploaded photo) the tilt is read from the photo itself: the building's vertical edges meet at a vanishing point that fixes pitch and roll.
+2. **Which building**: OpenStreetMap footprints within 150 m on a top view. Rays swept across the view pick the building in the middle of the picture; tap another if it is wrong.
+3. **Mark**: drag four dots to the outer left and right edges at the roof line and at the ground (a loupe helps), and optionally a fifth on the near corner. Measuring waits until the dots have been placed by hand, so the sensors' first guess is never shown as a measurement.
+4. **Estimate**: the photo is registered to the map, then height and floors come out (floors from OpenStreetMap `building:levels` when mapped, otherwise height ÷ 3 m, an assumption).
+5. **Design**: Muse Spark Open looks at the photo and the measured facts and chooses from a short menu (deck, planters, trees, pergola, seating, string lights, vines, window boxes, awning, wall lights, colours, captions). It never places anything or writes a number: the layout code places every item on the measured roof and walls. Without a key the app uses its local plan and says so.
+6. **Video** (rendered in the browser with three.js, about 27 s):
+   - the photo itself, then the camera moves and the photo's building turns solid (the photo is projected back onto the 3D scene from the camera that took it, so the first frame is the photo pixel for pixel);
+   - a white architectural model with floor lines and dimension lines (width and depth from the map, height marked ≈);
+   - the garden grows, the vines climb, the sun goes down at the real evening sun position for that place and date, the lights come on;
+   - back to the exact photo viewpoint for a before/after wipe.
+7. **Record and share**: the canvas is recorded (MP4 where the browser can, otherwise WebM) with the map attribution and estimate labels burned in.
+
+## Demo and real use: one pipeline
+
+- **Live**: `Open camera` on a phone (HTTPS needed, so use the Vercel deployment).
+- **Use a photo**: location, heading and focal length are read from EXIF when present; otherwise type them. Tilt comes from the building's edges.
+- **Preset**: `Save preset` writes one JSON file with the photo, what the phone knew, the footprints as fetched, the pick, the marks and the plan. `/?preset=/presets/name.json&autoplay=1` replays it straight into the video, offline and identical every time; `&size=1080` renders 1080 × 1920 for the demo recording. See `public/presets/README.md`.
+- **Synthetic demo**: `/?demo=synthetic` (labeled SYNTHETIC everywhere). Invented buildings around a placeholder location and a photo rendered from a known camera; the app gets only what a phone would know (a GPS fix 9.2 m off, a compass 11° off, no height for the target) and the facts panel compares its answers with the truth.
+
+## Synthetic check
+
+SYNTHETIC numbers from this repository, not real-world accuracy (that is not measured yet):
+
+| Case (GPS fix about 9 m off, compass about 11° off) | Height (true 18.6 m) | Camera position error | Heading error |
+| --- | --- | --- | --- |
+| Synthetic demo in the browser: marks within 1.5 px, near corner marked, gravity tilt | 18.54 m | 0.08 m | 0.02° |
+| Unit test scene: four marks within 1.5 px, no near corner | 18.68 m | 1.5 m | 1.7° |
+| Upload path in the browser: no sensors, tilt read from the photo (13.0°, true 14°), heading typed | 18.5 m | not recorded | corrected by 10.9° (error was 11°) |
+
+## Models
+
+| Role | Model | Where | Status |
+| --- | --- | --- | --- |
+| Design choices and captions from the photo and the facts | `meta-models/muse-spark-open-1026` | Baseten, OpenAI-compatible Chat Completions | wired; used when `BASETEN_API_KEY` is set |
+| Building outline and corners from a tap (automatic marks) | `sam-3.1` | Meta Model API | planned; not called before the hackathon credits are confirmed |
+
+When the design model is configured, the photo (downscaled to 1024 px) and the measured facts are sent to it through the app's server; nothing is stored there. Muse Wonder is documented as unavailable in South Korea, so it is not used. The video is rendered, not generated: a video model would not keep the floor count and the dimension lines consistent from frame to frame.
+
+## Data
+
+| Data | Source | License |
+| --- | --- | --- |
+| Building footprints, `height`, `building:levels` | OpenStreetMap via the Overpass API (`OVERPASS_URL`, default `overpass-api.de`) | ODbL, "© OpenStreetMap contributors" shown on screen and in videos |
+| Sun position | Astronomical Almanac low-precision formulas | computed |
+
+## Assumptions
+
+Listed in the facts panel whenever they are used: the roof stands at the same height at both outer edges (flat roof); 3.0 m per floor when OpenStreetMap has no level count; 1.5 m camera height when the foot of the walls is hidden; 67° field of view across the long side for a live capture (a typical 26 mm equivalent main camera; EXIF focal length for uploads); 9 m for neighbouring buildings without a mapped height (context only); compass uncertainty 20° when the phone reports none. Sizes of the decorations are design choices, not measurements.
+
+## Run locally
+
+```bash
+npm install
+npm test          # geometry, registration, height, tilt, EXIF, Overpass parsing, routes, plan, layout, timeline
+npm run lint
+npm run build
+npm run check:api # transpiles the API functions file by file and calls them without keys
+npm run dev       # http://localhost:5173/?demo=synthetic
+```
+
+## Secrets and settings
+
+Server side only; `/api/status` returns booleans.
+
+| Variable | Use |
+| --- | --- |
+| `BASETEN_API_KEY` | Muse Spark Open on Baseten |
+| `MODEL_API_KEY` (or `META_API_KEY`) | Meta Model API (SAM 3.1), not called yet |
+| `OVERPASS_URL` | another Overpass API instance (HTTPS) |
+| `DAILY_FOOTPRINT_CALL_CAP`, `DAILY_SPARK_CALL_CAP` | per-instance daily caps (defaults 2000 and 300) |
+
+## Open source used
+
+| Package | Role | License |
+| --- | --- | --- |
+| `three` (with its `examples/jsm` lines and BufferGeometryUtils) | 3D rendering | MIT |
+| `vite`, `vitest` | build, dev server, tests | MIT |
+| `typescript`, `typescript-eslint`, `eslint`, `@eslint/js`, `globals`, `@types/three`, `@types/node` | types and lint | Apache-2.0 / MIT |
+
+All application code was written in this repository during the hackathon (from 2026-10-27 02:00 KST).
+
+## Limits
+
+- Flat roofs and simple outlines. A pitched roof, a setback or a rooftop structure breaks the same-height assumption; marks must sit on the building's outermost vertical edges.
+- Buildings joined to their neighbours: the outer edge seen in the photo may not be the footprint's outermost corner.
+- OpenStreetMap coverage and tags vary by place; where the footprint is missing the app cannot place the photo.
+- Portrait capture only. The compass is magnetic; the registration absorbs the declination along with the compass error.
+- Interior layouts are not shown: they cannot be seen from outside.
+- The public Overpass instance has usage limits; cache or self-host for heavy use.
+- Real-phone checks of the orientation on iOS and Android, real buildings with known heights and SAM 3.1 automatic marks are next (`PROGRESS.md`).

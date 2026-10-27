@@ -1,0 +1,7 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/footprints.ts": { "maxDuration": 30 },
+    "api/design.ts": { "maxDuration": 90 }
+  }
+}

@@ -1,0 +1,197 @@
+/**
+ * The pinhole camera that took the photo, in local east-north-up metres.
+ *
+ * Orientation is heading (compass bearing of the optical axis, clockwise from
+ * north), pitch (elevation of the optical axis, up positive) and roll (rotation
+ * about the optical axis, positive when the right side of the picture dips).
+ * Pixels run right (u) and down (v) from the top-left corner.
+ */
+import type { ENU } from "../geo/enu.js";
+
+export type Orientation = { headingDeg: number; pitchDeg: number; rollDeg: number };
+
+export type Intrinsics = {
+  width: number;
+  height: number;
+  /** Focal length in pixels (square pixels). */
+  focalPx: number;
+  cx: number;
+  cy: number;
+};
+
+export type CameraPose = {
+  position: ENU;
+  orientation: Orientation;
+  intrinsics: Intrinsics;
+};
+
+export type Basis = { right: ENU; up: ENU; forward: ENU };
+
+const DEG = Math.PI / 180;
+
+/** Diagonal of the 36 × 24 mm frame that "35 mm equivalent" focal lengths refer to. */
+export const FULL_FRAME_DIAGONAL_MM = Math.hypot(36, 24);
+
+export function dot(a: ENU, b: ENU): number {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+export function cross(a: ENU, b: ENU): ENU {
+  return { x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x };
+}
+
+export function normalize(a: ENU): ENU {
+  const n = Math.hypot(a.x, a.y, a.z);
+  return n > 0 ? { x: a.x / n, y: a.y / n, z: a.z / n } : { x: 0, y: 0, z: 0 };
+}
+
+export function basisFromOrientation(o: Orientation): Basis {
+  const h = o.headingDeg * DEG;
+  const p = o.pitchDeg * DEG;
+  const r = o.rollDeg * DEG;
+  const forward = { x: Math.sin(h) * Math.cos(p), y: Math.cos(h) * Math.cos(p), z: Math.sin(p) };
+  const right0 = { x: Math.cos(h), y: -Math.sin(h), z: 0 };
+  const up0 = { x: -Math.sin(h) * Math.sin(p), y: -Math.cos(h) * Math.sin(p), z: Math.cos(p) };
+  const cr = Math.cos(r);
+  const sr = Math.sin(r);
+  return {
+    forward,
+    right: {
+      x: cr * right0.x - sr * up0.x,
+      y: cr * right0.y - sr * up0.y,
+      z: cr * right0.z - sr * up0.z,
+    },
+    up: {
+      x: sr * right0.x + cr * up0.x,
+      y: sr * right0.y + cr * up0.y,
+      z: sr * right0.z + cr * up0.z,
+    },
+  };
+}
+
+export function orientationFromBasis(up: ENU, forward: ENU): Orientation {
+  const f = normalize(forward);
+  const headingRad = Math.atan2(f.x, f.y);
+  const pitchRad = Math.asin(Math.max(-1, Math.min(1, f.z)));
+  const right0 = { x: Math.cos(headingRad), y: -Math.sin(headingRad), z: 0 };
+  const up0 = {
+    x: -Math.sin(headingRad) * Math.sin(pitchRad),
+    y: -Math.cos(headingRad) * Math.sin(pitchRad),
+    z: Math.cos(pitchRad),
+  };
+  const rollRad = Math.atan2(dot(up, right0), dot(up, up0));
+  const heading = headingRad / DEG;
+  return { headingDeg: heading < 0 ? heading + 360 : heading, pitchDeg: pitchRad / DEG, rollDeg: rollRad / DEG };
+}
+
+/**
+ * Device-to-earth rotation from DeviceOrientationEvent angles, as the W3C
+ * spec defines them (intrinsic Z-X'-Y'' with alpha, beta, gamma in degrees).
+ * Columns are the device x (screen right), y (screen top) and z (out of the
+ * screen) axes in east-north-up.
+ */
+export function deviceAxesFromEuler(alphaDeg: number, betaDeg: number, gammaDeg: number): {
+  x: ENU;
+  y: ENU;
+  z: ENU;
+} {
+  const ca = Math.cos(alphaDeg * DEG);
+  const sa = Math.sin(alphaDeg * DEG);
+  const cb = Math.cos(betaDeg * DEG);
+  const sb = Math.sin(betaDeg * DEG);
+  const cg = Math.cos(gammaDeg * DEG);
+  const sg = Math.sin(gammaDeg * DEG);
+  return {
+    x: { x: ca * cg - sa * sb * sg, y: sa * cg + ca * sb * sg, z: -cb * sg },
+    y: { x: -sa * cb, y: ca * cb, z: sb },
+    z: { x: ca * sg + sa * sb * cg, y: sa * sg - ca * sb * cg, z: cb * cg },
+  };
+}
+
+/**
+ * Camera orientation for a phone held in portrait: the back camera looks
+ * along the device's -z axis, the picture's up is the device's +y axis.
+ */
+export function orientationFromEuler(alphaDeg: number, betaDeg: number, gammaDeg: number): Orientation {
+  const axes = deviceAxesFromEuler(alphaDeg, betaDeg, gammaDeg);
+  return orientationFromBasis(axes.y, { x: -axes.z.x, y: -axes.z.y, z: -axes.z.z });
+}
+
+/**
+ * iOS reports alpha against an arbitrary start, and the compass separately
+ * (webkitCompassHeading). Returns the alpha that makes the camera heading
+ * equal to that compass heading. Turning alpha up turns the heading down by
+ * the same angle, so the offset is a plain difference.
+ */
+export function alphaForCompassHeading(betaDeg: number, gammaDeg: number, compassHeadingDeg: number): number {
+  const atZero = orientationFromEuler(0, betaDeg, gammaDeg).headingDeg;
+  const alpha = (atZero - compassHeadingDeg) % 360;
+  return alpha < 0 ? alpha + 360 : alpha;
+}
+
+/** Field of view across the longer side of the picture. */
+export function intrinsicsFromLongSideFov(width: number, height: number, fovLongDeg: number): Intrinsics {
+  if (!(width > 0 && height > 0 && fovLongDeg > 1 && fovLongDeg < 170)) {
+    throw new RangeError("image size must be positive and the field of view between 1° and 170°");
+  }
+  const focalPx = Math.max(width, height) / 2 / Math.tan((fovLongDeg * DEG) / 2);
+  return { width, height, focalPx, cx: width / 2, cy: height / 2 };
+}
+
+/** From a 35 mm equivalent focal length (EXIF FocalLengthIn35mmFilm), matched on the diagonal. */
+export function intrinsicsFrom35mm(width: number, height: number, focal35mm: number): Intrinsics {
+  if (!(width > 0 && height > 0 && focal35mm > 1)) {
+    throw new RangeError("image size and focal length must be positive");
+  }
+  const focalPx = (focal35mm * Math.hypot(width, height)) / FULL_FRAME_DIAGONAL_MM;
+  return { width, height, focalPx, cx: width / 2, cy: height / 2 };
+}
+
+export function longSideFovDeg(intrinsics: Intrinsics): number {
+  return (2 * Math.atan(Math.max(intrinsics.width, intrinsics.height) / 2 / intrinsics.focalPx)) / DEG;
+}
+
+export function verticalFovDeg(intrinsics: Intrinsics): number {
+  return (2 * Math.atan(intrinsics.height / 2 / intrinsics.focalPx)) / DEG;
+}
+
+export function horizontalFovDeg(intrinsics: Intrinsics): number {
+  return (2 * Math.atan(intrinsics.width / 2 / intrinsics.focalPx)) / DEG;
+}
+
+/** Unit direction (east-north-up) of the ray through pixel (u, v). */
+export function pixelRay(orientation: Orientation, intrinsics: Intrinsics, u: number, v: number): ENU {
+  const b = basisFromOrientation(orientation);
+  const x = (u - intrinsics.cx) / intrinsics.focalPx;
+  const y = -(v - intrinsics.cy) / intrinsics.focalPx;
+  return normalize({
+    x: b.forward.x + b.right.x * x + b.up.x * y,
+    y: b.forward.y + b.right.y * x + b.up.y * y,
+    z: b.forward.z + b.right.z * x + b.up.z * y,
+  });
+}
+
+export type Projected = { u: number; v: number; depth: number };
+
+/** Pixel of a world point, or null when it is behind the camera. */
+export function projectPoint(pose: CameraPose, p: ENU): Projected | null {
+  const b = basisFromOrientation(pose.orientation);
+  const rel = { x: p.x - pose.position.x, y: p.y - pose.position.y, z: p.z - pose.position.z };
+  const depth = dot(rel, b.forward);
+  if (depth <= 1e-6) return null;
+  const { focalPx, cx, cy } = pose.intrinsics;
+  return {
+    u: cx + (focalPx * dot(rel, b.right)) / depth,
+    v: cy - (focalPx * dot(rel, b.up)) / depth,
+    depth,
+  };
+}
+
+/** Bearing (clockwise from north) and elevation of a direction, in degrees. */
+export function bearingElevation(dir: ENU): { bearingDeg: number; elevationDeg: number } {
+  const bearing = Math.atan2(dir.x, dir.y) / DEG;
+  return {
+    bearingDeg: bearing < 0 ? bearing + 360 : bearing,
+    elevationDeg: Math.atan2(dir.z, Math.hypot(dir.x, dir.y)) / DEG,
+  };
+}
