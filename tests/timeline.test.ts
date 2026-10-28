@@ -16,6 +16,16 @@ describe("camera path", () => {
     expect(back.orientation.rollDeg).toBeCloseTo(pose.orientation.rollDeg, 9);
   });
 
+  it("starts with the optical axis where a cropped photo has it", () => {
+    const pose = truePose();
+    const k = pose.intrinsics;
+    const cropped = { ...pose, intrinsics: { ...k, cx: k.cx + 40, cy: k.cy + 150 } };
+    const spec = { pose: cropped, target: { ring: TARGET }, height: { heightM: TRUE_HEIGHT_M } } as unknown as BuildingSpec;
+    const start = orbitPose(photoOrbit(spec));
+    expect(start.shift.x).toBeCloseTo(40 / k.height, 9);
+    expect(start.shift.y).toBeCloseTo(150 / k.height, 9);
+  });
+
   it("holds still at a hold and never overshoots", () => {
     const f = monotoneSpline([0, 1, 2, 3], [5, 5, 10, 10]);
     expect(f(0.5)).toBe(5);

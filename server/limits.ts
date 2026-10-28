@@ -12,15 +12,24 @@ function today(now: number): string {
   return new Date(now).toISOString().slice(0, 10);
 }
 
-export function capFor(name: "footprints" | "spark", env: EnvMap = process.env): number {
-  const raw = name === "footprints" ? env.DAILY_FOOTPRINT_CALL_CAP : env.DAILY_SPARK_CALL_CAP;
+export type CallKind = "footprints" | "spark" | "street";
+
+const CAP_ENV: Record<CallKind, string> = {
+  footprints: "DAILY_FOOTPRINT_CALL_CAP",
+  spark: "DAILY_SPARK_CALL_CAP",
+  street: "DAILY_STREET_CALL_CAP",
+};
+const CAP_DEFAULT: Record<CallKind, number> = { footprints: 2000, spark: 300, street: 2000 };
+
+export function capFor(name: CallKind, env: EnvMap = process.env): number {
+  const raw = env[CAP_ENV[name]];
   const n = Number(raw);
   if (raw && Number.isFinite(n) && n > 0) return Math.floor(n);
-  return name === "footprints" ? 2000 : 300;
+  return CAP_DEFAULT[name];
 }
 
 /** Counts one call; false when today's cap is already used up. */
-export function takeCall(name: "footprints" | "spark", now = Date.now(), env: EnvMap = process.env): boolean {
+export function takeCall(name: CallKind, now = Date.now(), env: EnvMap = process.env): boolean {
   const day = today(now);
   const counter = counters.get(name);
   const current = counter && counter.day === day ? counter : { day, count: 0 };

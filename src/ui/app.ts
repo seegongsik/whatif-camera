@@ -1,6 +1,9 @@
 /**
- * The page: home → camera (or a photo, a preset, the synthetic scene) →
- * pick the building on the top view → mark it on the photo → the video.
+ * The page. Street ahead (the default): home → camera (or a photo, a street
+ * on the map, the synthetic street) → the street view. Building what-if
+ * (?mode=building, the earlier prototype): home → camera (or a photo, a
+ * preset, the synthetic scene) → pick the building on the top view → mark it
+ * on the photo → the video.
  */
 import { LiveCamera } from "../capture/camera.js";
 import { readExif } from "../capture/exif.js";
@@ -25,6 +28,9 @@ import {
 import { downloadJson, parsePreset, presetFrom, sceneFromPreset } from "../preset/preset.js";
 import { Player, pickRecordingType } from "../scene/player.js";
 import { syntheticScene } from "../synthetic/scene.js";
+import type { StreetAhead } from "../street/street.js";
+import { syntheticStreet } from "../street/synthetic.js";
+import { StreetView } from "../street/view.js";
 import { h, fmt } from "./dom.js";
 import { factsPanel } from "./facts.js";
 import { Marker } from "./marker.js";
@@ -33,6 +39,16 @@ import { topView } from "./topview.js";
 type Status = { basetenApiKeyConfigured: boolean; modelApiKeyConfigured: boolean } | null;
 
 const params = new URLSearchParams(location.search);
+
+/**
+ * Streets to fly down from the map alone, without a photo: a point on the
+ * street and the direction to look. Starting points, not survey marks.
+ */
+const FAMOUS_STREETS = [
+  { label: "Gangnam-daero, Seoul (north from Gangnam Station)", lat: 37.4985, lon: 127.0274, headingDeg: 343 },
+  { label: "Fifth Avenue, New York (north from Rockefeller Center)", lat: 40.7584, lon: -73.9781, headingDeg: 29 },
+  { label: "Robson Street, Vancouver (north-west from Burrard)", lat: 49.2836, lon: -123.1213, headingDeg: 315 },
+];
 
 export class App {
   private readonly root: HTMLElement;
@@ -49,6 +65,8 @@ export class App {
   private sensors: Sensors | null = null;
   private camera: LiveCamera | null = null;
   private hudTimer = 0;
+  private readonly mode: "street" | "building" = params.get("mode") === "building" ? "building" : "street";
+  private streetView: StreetView | null = null;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -69,6 +87,15 @@ export class App {
         await this.load(syntheticScene(), autoplay);
         return;
       }
+      if (params.get("demo") === "street") {
+        this.showStreet(syntheticStreet());
+        return;
+      }
+      const at = params.get("street")?.split(",").map(Number);
+      if (at && at.length === 3 && at.every(Number.isFinite)) {
+        await this.streetFor({ lat: at[0], lon: at[1], headingDeg: at[2] });
+        return;
+      }
       const preset = params.get("preset");
       if (preset) {
         // Same-origin presets only, so a link cannot put someone else's captions on this site.
@@ -87,6 +114,8 @@ export class App {
 
   private screen(...children: (Node | null | false)[]): void {
     this.player?.pause();
+    this.streetView?.dispose();
+    this.streetView = null;
     this.root.replaceChildren(...children.filter((c): c is Node => Boolean(c)));
     window.scrollTo(0, 0);
   }
@@ -103,6 +132,10 @@ export class App {
 
   private home(error?: string): void {
     this.stopLive();
+    if (this.mode === "street") {
+      this.streetHome(error);
+      return;
+    }
     const presetInput = h("input", { type: "file", accept: "application/json,.json", class: "hidden" });
     presetInput.addEventListener("change", async () => {
       const file = presetInput.files?.[0];
@@ -147,6 +180,72 @@ export class App {
         h("p", { class: "muted small", text: "Footprints © OpenStreetMap contributors (ODbL). Heights, floors and designs are estimates and ideas, not survey results." }),
       ),
     );
+  }
+
+  private streetHome(error?: string): void {
+    const photoInput = h("input", { type: "file", accept: "image/jpeg,image/*", class: "hidden" });
+    photoInput.addEventListener("change", () => {
+      const file = photoInput.files?.[0];
+      if (file) void this.fromUpload(file);
+    });
+    this.screen(
+      h(
+        "main",
+        { class: "home" },
+        h("h1", {}, "What's ahead", h("span", { class: "accent", text: "?" })),
+        h("p", {
+          class: "lead",
+          text: "Point your phone down a street and take one photo. Every shop the map knows for the next 5 km appears where it stands; scroll to fly down the street.",
+        }),
+        error ? h("p", { class: "error", text: error }) : null,
+        h("button", { class: "primary big", onclick: () => void this.openCamera() }, "Open camera"),
+        h(
+          "div",
+          { class: "row" },
+          h("button", { onclick: () => photoInput.click() }, "Use a photo"),
+          h("button", { class: "ghost", onclick: () => this.showStreet(syntheticStreet()) }, "Synthetic street"),
+        ),
+        h("p", { class: "muted small", text: "Or fly down a street from the map alone:" }),
+        h("div", { class: "street-places" }, ...FAMOUS_STREETS.map((s) => h("button", { onclick: () => void this.streetFor(s) }, s.label))),
+        photoInput,
+        h("p", { class: "muted small", text: "Streets and shops © OpenStreetMap contributors (ODbL). Shops change; the map may be out of date." }),
+        h("p", { class: "muted small" }, h("a", { href: "?mode=building" }, "Building what-if (the earlier prototype)")),
+      ),
+    );
+  }
+
+  private async streetFor(at: { lat: number; lon: number; headingDeg: number }, photo?: HTMLCanvasElement, capture?: CaptureMeta): Promise<void> {
+    this.screen(h("main", { class: "page center" }, h("div", { class: "spinner" }), h("p", { text: "Finding the street ahead and its shops (OpenStreetMap)…" })));
+    try {
+      const res = await fetch(`/api/street?lat=${at.lat}&lon=${at.lon}&heading=${at.headingDeg}`);
+      const body = (await res.json().catch(() => ({}))) as Partial<StreetAhead> & { error?: string };
+      if (!res.ok || !body.route) throw new Error(body.error ?? `The street lookup answered ${res.status}.`);
+      this.showStreet(body as StreetAhead, photo, capture);
+    } catch (error) {
+      this.screen(
+        h(
+          "main",
+          { class: "page" },
+          h("h2", { text: "No street found" }),
+          h("p", { class: "error", text: error instanceof Error ? error.message : String(error) }),
+          h(
+            "div",
+            { class: "row" },
+            h("button", { class: "ghost", onclick: () => this.home() }, "Home"),
+            h("button", { class: "primary", onclick: () => void this.streetFor(at, photo, capture) }, "Try again"),
+          ),
+        ),
+      );
+    }
+  }
+
+  private showStreet(street: StreetAhead, photo?: HTMLCanvasElement, capture?: CaptureMeta): void {
+    const view = new StreetView({ street, photo, capture, onClose: () => this.home() });
+    this.screen(view.element);
+    this.streetView = view;
+    view.start();
+    // Handle for the browser tests on the dev server.
+    if (import.meta.env.DEV) Object.assign(window, { __street: view });
   }
 
   private stopLive(): void {
@@ -228,7 +327,8 @@ export class App {
         raw: o ? { ...o.raw, screenAngle: screenAngle() } : { screenAngle: screenAngle() },
       };
       this.stopLive();
-      void this.withFootprints(photo, capture, "Live capture");
+      if (this.mode === "street") void this.streetFor({ lat: capture.lat, lon: capture.lon, headingDeg: capture.headingDeg }, photo, capture);
+      else void this.withFootprints(photo, capture, "Live capture");
     });
     this.screen(h("main", { class: "camera" }, camera.video, level, hud, h("div", { class: "camera-bar" }, back, shoot)));
     update();
@@ -282,7 +382,7 @@ export class App {
           { enableHighAccuracy: true },
         ),
     }, "Use my current location");
-    const go = h("button", { class: "primary" }, "Find the building");
+    const go = h("button", { class: "primary" }, this.mode === "street" ? "Find the street" : "Find the building");
     go.addEventListener("click", () => {
       const la = Number(fLat.input.value);
       const lo = Number(fLon.input.value);
@@ -305,7 +405,8 @@ export class App {
         fovSource: fovFromExif ? "EXIF" : "assumption",
         takenAt: takenAt ?? new Date().toISOString(),
       };
-      void this.withFootprints(photo, capture, "Uploaded photo");
+      if (this.mode === "street") void this.streetFor({ lat: capture.lat, lon: capture.lon, headingDeg: capture.headingDeg }, photo, capture);
+      else void this.withFootprints(photo, capture, "Uploaded photo");
     });
     const preview = h("canvas", { class: "thumb" });
     preview.width = photo.width;
@@ -374,11 +475,14 @@ export class App {
     const info = h("p", { class: "muted" });
     const draw = () => {
       const best = located.candidates[0]?.id === this.selectedId;
+      const saved = Boolean(input.selectionId) && input.selectionId === this.selectedId;
       info.textContent = !this.selectedId
         ? "Tap the building you photographed."
-        : best
-          ? "The orange building is the best match for where the camera pointed. Tap another footprint if it is not the one."
-          : "Using the building you tapped.";
+        : saved
+          ? "The orange building is the one saved with this capture. Tap another footprint to change it."
+          : best
+            ? "The orange building is the best match for where the camera pointed. Tap another footprint if it is not the one."
+            : "Using the building you tapped.";
       holder.replaceChildren(
         topView({
           footprints: located.footprints,
@@ -485,6 +589,7 @@ export class App {
       plan = outcome.plan;
       note = outcome.note;
     }
+    if (plan.facade.windowBoxes && !spec.synthetic) note += " · window boxes left out: the photo does not give the window positions yet";
     this.plan = plan;
     this.spec = spec;
     const size = params.get("size") === "1080" ? [1080, 1920] : [720, 1280];

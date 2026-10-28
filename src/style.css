@@ -533,3 +533,377 @@ main.camera video {
 .plan-note {
   font-weight: 600;
 }
+
+/* ----- Street ahead ----- */
+
+main.street {
+  position: fixed;
+  inset: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: #bfe0f7;
+}
+
+.street-stage {
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+  width: 100%;
+  overflow: hidden;
+}
+
+.street-stage > canvas.street-gl {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.street-photo-layer {
+  position: absolute;
+  inset: 0;
+}
+
+.street-photo-layer .street-photo,
+.street-labels {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.street-photo-layer .street-photo {
+  object-fit: cover;
+}
+
+.street-top {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  left: 12px;
+  right: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.street-title {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  max-width: calc(100% - 140px);
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+  pointer-events: auto;
+}
+
+.street-title strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.street-close {
+  width: 44px;
+  padding: 0;
+  font-size: 1.4rem;
+  pointer-events: auto;
+}
+
+.street-top-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.street-share {
+  min-height: 44px;
+  padding: 0 14px;
+  font-size: 0.85rem;
+  pointer-events: auto;
+}
+
+.street-readout {
+  position: absolute;
+  top: calc(max(12px, env(safe-area-inset-top)) + 58px);
+  left: 12px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #1b1b1b;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.street-minimap {
+  position: absolute;
+  top: calc(max(12px, env(safe-area-inset-top)) + 58px);
+  right: 12px;
+  width: 120px;
+  height: 120px;
+  border-radius: 16px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+}
+
+.street-bottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(max(8px, env(safe-area-inset-bottom)) + 18px);
+  display: grid;
+  gap: 8px;
+  padding: 0 12px;
+  pointer-events: none;
+}
+
+.street-next {
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.street-chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  pointer-events: auto;
+}
+
+.street-chips .chip {
+  flex: none;
+  min-height: 34px;
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  border: 2px solid var(--chip);
+  background: #fff;
+  color: var(--chip);
+}
+
+.street-chips .chip.on {
+  background: var(--chip);
+  color: #fff;
+}
+
+.street-credit {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: max(2px, env(safe-area-inset-bottom));
+  font-size: 0.68rem;
+  color: rgba(0, 0, 0, 0.7);
+  text-align: right;
+  text-shadow: 0 0 4px rgba(255, 255, 255, 0.95);
+  pointer-events: none;
+}
+
+.street-card {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 16px;
+  max-height: 70%;
+  overflow-y: auto;
+  padding: 18px;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+.street-card-tab {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 999px;
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.8rem;
+}
+
+.street-card h3 {
+  margin: 10px 0 4px;
+  font-size: 1.3rem;
+}
+
+.street-places {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 16px;
+}
+
+.street-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.street-quest-button {
+  pointer-events: auto;
+  min-height: 40px;
+  padding: 8px 16px;
+  border: none;
+  background: linear-gradient(135deg, #ffcb3d, #ff8a2b);
+  color: #2b1600;
+  font-weight: 800;
+  box-shadow: 0 6px 18px rgba(255, 138, 43, 0.45);
+}
+
+.street-quest-bar {
+  position: absolute;
+  top: calc(max(12px, env(safe-area-inset-top)) + 98px);
+  left: 12px;
+  right: 144px;
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 8px 8px 12px;
+  border-radius: 16px;
+  background: #fff6dc;
+  border: 2px solid #ffb300;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
+  font-size: 0.82rem;
+}
+
+.street-quest-bar.hidden {
+  display: none;
+}
+
+.quest-bar-text {
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.quest-bar-text > * {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.street-quest-bar button {
+  min-height: 32px;
+  padding: 4px 12px;
+  font-size: 0.8rem;
+}
+
+.street-toast {
+  position: absolute;
+  top: 38%;
+  left: 50%;
+  max-width: calc(100% - 48px);
+  transform: translate(-50%, -50%);
+  padding: 12px 20px;
+  border-radius: 999px;
+  background: rgba(27, 27, 27, 0.92);
+  color: #fff;
+  font-weight: 800;
+  text-align: center;
+  pointer-events: none;
+}
+
+.street-toast.pop {
+  animation: street-pop 0.45s cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+
+@keyframes street-pop {
+  from {
+    transform: translate(-50%, -50%) scale(0.6);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+}
+
+.street-sign-note {
+  position: absolute;
+  top: calc(max(12px, env(safe-area-inset-top)) + 98px);
+  left: 12px;
+  right: 144px;
+  padding: 8px 12px;
+  border-radius: 14px;
+  background: rgba(27, 27, 27, 0.82);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.street-sign-note.good {
+  background: rgba(31, 122, 68, 0.92);
+}
+
+.street-sheet {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 16px;
+  max-height: 78%;
+  overflow-y: auto;
+  padding: 18px;
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+.street-sheet h3 {
+  margin: 4px 0 8px;
+  font-size: 1.3rem;
+}
+
+.street-sheet .spinner {
+  margin: 12px auto;
+}
+
+.center-text {
+  text-align: center;
+}
+
+.quest-themes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.quest-kicker {
+  color: #b86e00;
+  font-weight: 800;
+  font-size: 0.8rem;
+  letter-spacing: 0.02em;
+}
+
+.quest-stops {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0;
+  display: grid;
+  gap: 10px;
+}
+
+.quest-stops li {
+  display: grid;
+  grid-template-columns: 32px 1fr;
+  gap: 10px;
+  align-items: start;
+}
+
+.quest-stops p {
+  margin: 2px 0 0;
+}
+
+.quest-num {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 800;
+}

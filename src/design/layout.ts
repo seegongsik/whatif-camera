@@ -46,6 +46,11 @@ export type LayoutInput = {
   floorHeightM: number;
   mainFacade: number;
   plan: DesignPlan;
+  /**
+   * Window boxes sit under windows, so they need the window positions. A real
+   * photo does not give them yet; false leaves window boxes out.
+   */
+  windowGridKnown?: boolean;
 };
 
 const PLANTER_WIDTH = 0.5;
@@ -282,7 +287,7 @@ export function layoutDesign(input: LayoutInput): Layout {
 
   // Window boxes on the main facade, from the second floor up.
   const main = es[input.mainFacade];
-  if (plan.facade.windowBoxes && main) {
+  if (plan.facade.windowBoxes && main && input.windowGridKnown !== false) {
     for (let floor = 2; floor <= Math.min(input.floors, 12); floor += 1) {
       for (let s = 1.6; s <= main.length - 1.6; s += 3.0) {
         layout.windowBoxes.push({ facade: input.mainFacade, s, z: (floor - 1) * input.floorHeightM + 0.9, length: 1.1 });

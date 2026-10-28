@@ -4,7 +4,7 @@
  * decorations always agree with each other.
  */
 import { localFrame, type EN, type LocalFrame } from "../geo/enu.js";
-import { area, centroid, edges, type Ring } from "../geo/polygon.js";
+import { area, centroid, edges, pointInRing, type Ring } from "../geo/polygon.js";
 import { eveningSun, sunPosition, type SunPosition } from "../geo/sun.js";
 import {
   horizontalFovDeg,
@@ -30,10 +30,22 @@ export type Located = {
   candidates: Candidate[];
 };
 
+/**
+ * Another outline of the selected building itself: map tiles carry a
+ * building's outline and its parts as separate shapes, and a part as large as
+ * the building (its centre inside, at least half its area) would bury the
+ * model. Smaller parts inside it, such as a tower, stay.
+ */
+export function sameBuilding(target: Ring, other: Ring): boolean {
+  return pointInRing(centroid(other), target) && area(other) >= 0.5 * area(target);
+}
+
 export function locate(capture: CaptureMeta, photo: { width: number; height: number }, set: FootprintSet): Located {
   const frame = localFrame({ lat: capture.lat, lon: capture.lon });
   const footprints = toLocalFootprints(set, frame);
-  const intrinsics = intrinsicsFromLongSideFov(photo.width, photo.height, capture.fovLongDeg);
+  const centred = intrinsicsFromLongSideFov(photo.width, photo.height, capture.fovLongDeg);
+  const pp = capture.principalPoint;
+  const intrinsics = pp ? { ...centred, cx: pp.u, cy: pp.v } : centred;
   const priorPose: CameraPose = {
     position: { x: 0, y: 0, z: ASSUMED_CAMERA_HEIGHT_M },
     orientation: { headingDeg: capture.headingDeg, pitchDeg: capture.pitchDeg, rollDeg: capture.rollDeg },
@@ -194,12 +206,18 @@ export function buildSpec(args: {
   const scores = facadeScores(target.ring, registration.position);
   const mainFacade = scores.indexOf(Math.max(...scores));
   const n = target.ring.length;
-  const prev = (mainFacade + n - 1) % n;
-  const next = (mainFacade + 1) % n;
-  const sideFacade = scores[prev] > scores[next] ? prev : next;
   const es = edges(target.ring);
+  const main = es[mainFacade];
+  // A side wall for the depth line: next to the main facade, at least a quarter
+  // as long and roughly square to it. Outlines with notches may have none.
+  const sides = [(mainFacade + n - 1) % n, (mainFacade + 1) % n].filter(
+    (i) => es[i].length >= 0.25 * main.length && Math.abs(es[i].dir.x * main.dir.x + es[i].dir.y * main.dir.y) <= 0.5,
+  );
+  const sideFacade = sides.length === 0 ? mainFacade : sides.reduce((a, b) => (scores[b] > scores[a] ? b : a));
+  // Depth: how far the footprint reaches behind the main facade.
+  const depthM = Math.max(...target.ring.map((p) => -((p.x - main.a.x) * main.normal.x + (p.y - main.a.y) * main.normal.y)));
   const neighbours: Neighbour[] = located.footprints
-    .filter((f) => f.id !== target.id)
+    .filter((f) => f.id !== target.id && !sameBuilding(target.ring, f.ring))
     .map((f) => {
       if (args.synthetic && f.tags.heightM !== undefined) {
         return { id: f.id, ring: f.ring, heightM: f.tags.heightM, heightSource: "synthetic" as const };
@@ -232,8 +250,8 @@ export function buildSpec(args: {
     marks,
     mainFacade,
     sideFacade,
-    widthM: es[mainFacade].length,
-    depthM: es[sideFacade].length,
+    widthM: main.length,
+    depthM,
     roofAreaM2: area(target.ring),
     capturedAt: capture.takenAt,
     sun: sunSetting(capture.takenAt, capture.lat, capture.lon),

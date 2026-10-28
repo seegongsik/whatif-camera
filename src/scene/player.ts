@@ -16,6 +16,7 @@ import type { DesignPlan } from "../design/plan.js";
 import type { Layout } from "../design/layout.js";
 import { Decor, type DecorChannel } from "./decor.js";
 import { Dimensions, DIM_COLOR } from "./dims.js";
+import { fitText } from "./fit-text.js";
 import { quaternionFor, toWorld } from "./coords.js";
 import { makeTimeline, type ShotState, type Timeline } from "./timeline.js";
 import { buildWorld, LAYER_ADDED, SKY_HORIZON, type World } from "./world.js";
@@ -26,6 +27,8 @@ const EVENING_SKY = new Color("#f2b88f");
 const EVENING_HEMI_SKY = new Color("#b6a3c8");
 const DAY_HEMI_GROUND = new Color("#cdc6b8");
 const EVENING_HEMI_GROUND = new Color("#8f7a68");
+// Linear multiplier that takes the daylight photo towards the evening light.
+const EVENING_PHOTO = new Color(0.8, 0.64, 0.56);
 
 export type PlayerLoad = {
   spec: BuildingSpec;
@@ -105,7 +108,7 @@ export class Player {
     this.dims = dims;
     this.decor = decor;
     this.spec = input.spec;
-    this.timeline = makeTimeline(input.spec, input.plan, this.width / this.height);
+    this.timeline = makeTimeline(input.spec, input.plan);
     world.projector.renderDepth(this.renderer, world.scene);
     // The untouched photo, as framed by the video, for the before/after wipe.
     this.apply(this.timeline.at(0));
@@ -123,6 +126,12 @@ export class Player {
     this.camera.position.copy(toWorld(s.pose.position));
     this.camera.quaternion.copy(quaternionFor(s.pose.orientation));
     this.camera.fov = s.pose.vfovDeg;
+    const { x, y } = s.pose.shift;
+    if (Math.abs(x) + Math.abs(y) > 1e-4) {
+      this.camera.setViewOffset(this.width, this.height, -x * this.height, -y * this.height, this.width, this.height);
+    } else {
+      this.camera.clearViewOffset();
+    }
     this.camera.updateProjectionMatrix();
 
     w.envMix.value = Math.min(1, Math.max(0, s.envPhoto));
@@ -142,12 +151,16 @@ export class Player {
     w.skyMaterial.color.copy(WHITE).lerp(EVENING_SKY, evening);
     w.fog.color.copy(SKY_HORIZON).lerp(EVENING_SKY, evening * 0.8);
     this.renderer.toneMappingExposure = 1 - 0.04 * evening;
+    w.projector.uniforms.photoTint.value.copy(WHITE).lerp(EVENING_PHOTO, evening);
+    w.projector.uniforms.photoCutOn.value = Math.min(1, Math.max(0, s.foregroundCut));
+    w.facade.facadeEvening.value = Math.min(1, Math.max(0, s.lightsOn));
 
     w.edgeMaterial.opacity = 0.75 * Math.min(1, Math.max(0, s.edges));
     const n = w.floorMaterials.length;
     w.floorMaterials.forEach((m, i) => {
       const local = Math.min(1, Math.max(0, s.floors * (n + 2) - i));
-      m.opacity = 0.55 * local * Math.min(1, Math.max(0, s.edges));
+      // Estimated storeys need not match the photo's windows: show them with the measurements only.
+      m.opacity = 0.55 * local * Math.min(1, Math.max(0, s.edges)) * Math.max(0, s.dimsFade);
     });
     this.dims!.setProgress(s.dims);
     this.dims!.setFade(s.dimsFade);
@@ -165,20 +178,31 @@ export class Player {
     this.onTime?.(this.time, this.timeline.duration);
   }
 
-  private pill(text: string, x: number, y: number, size: number, bg: string, fg: string, align: "center" | "left" = "center") {
+  /**
+   * A rounded label whose first line is centred on y. Text too wide for the
+   * frame shrinks, then breaks onto a second line below. Returns the bottom edge.
+   */
+  private pill(text: string, x: number, y: number, size: number, bg: string, fg: string, align: "center" | "left" = "center"): number {
     const ctx = this.ctx;
-    ctx.font = `600 ${size}px "Inter", system-ui, -apple-system, "Segoe UI", sans-serif`;
-    const w = ctx.measureText(text).width + size * 1.1;
-    const h = size * 1.75;
+    const labelWidth = (line: string, px: number) => {
+      ctx.font = `600 ${px}px "Inter", system-ui, -apple-system, "Segoe UI", sans-serif`;
+      return ctx.measureText(line).width + px * 1.1;
+    };
+    const fit = fitText(text, size, this.width * 0.92, labelWidth);
+    const w = Math.max(...fit.lines.map((line) => labelWidth(line, fit.size)));
+    const lineHeight = fit.size * 1.2;
+    const top = y - fit.size * 0.875;
+    const h = fit.size * 1.75 + lineHeight * (fit.lines.length - 1);
     const left = align === "center" ? x - w / 2 : x;
     ctx.fillStyle = bg;
     ctx.beginPath();
-    ctx.roundRect(left, y - h / 2, w, h, h / 2);
+    ctx.roundRect(left, top, w, h, fit.size * 0.875);
     ctx.fill();
     ctx.fillStyle = fg;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(text, left + w / 2, y + size * 0.04);
+    fit.lines.forEach((line, i) => ctx.fillText(line, left + w / 2, y + i * lineHeight + fit.size * 0.04));
+    return top + h;
   }
 
   private composite(s: ShotState): void {
@@ -227,8 +251,8 @@ export class Player {
     if (s.caption && s.caption.alpha > 0.01) {
       ctx.globalAlpha = s.caption.alpha;
       const size = Math.round(H * 0.03);
-      this.pill(s.caption.text, W / 2, H * 0.86, size, "rgba(12,12,12,0.72)", "#fff");
-      if (s.caption.sub) this.pill(s.caption.sub, W / 2, H * 0.86 + size * 2.1, Math.round(size * 0.55), "rgba(255,255,255,0.85)", "#222");
+      const bottom = this.pill(s.caption.text, W / 2, H * 0.86, size, "rgba(12,12,12,0.72)", "#fff");
+      if (s.caption.sub) this.pill(s.caption.sub, W / 2, bottom + size * 1.225, Math.round(size * 0.55), "rgba(255,255,255,0.85)", "#222");
       ctx.globalAlpha = 1;
     }
 

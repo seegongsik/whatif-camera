@@ -8,6 +8,7 @@ import { Group, Vector3 } from "three";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
+import { bearingDeg, wrapDeg } from "../geo/enu.js";
 import { edges } from "../geo/polygon.js";
 import type { BuildingSpec } from "../estimate/spec.js";
 import { toWorldAt } from "./coords.js";
@@ -67,9 +68,18 @@ export class Dimensions {
     along(main, fmt(main.length), [0, 0.5]);
     if (spec.sideFacade !== spec.mainFacade) along(side, fmt(side.length), [0.2, 0.7]);
 
-    // Height at the main facade's corner that is not shared with the side facade.
-    const sharedAtEnd = spec.sideFacade === (spec.mainFacade + 1) % ring.length;
-    const cornerIndex = sharedAtEnd ? spec.mainFacade : (spec.mainFacade + 1) % ring.length;
+    // Height at the main facade's corner that is not shared with the side
+    // facade; without a side facade, at the end nearer the middle of the photo.
+    const ends = [spec.mainFacade, (spec.mainFacade + 1) % ring.length];
+    const offAxis = (i: number) => {
+      const p = ring[i];
+      const cam = spec.pose.position;
+      return Math.abs(wrapDeg(bearingDeg(cam, p) - spec.pose.orientation.headingDeg));
+    };
+    const cornerIndex =
+      spec.sideFacade === spec.mainFacade
+        ? offAxis(ends[0]) <= offAxis(ends[1]) ? ends[0] : ends[1]
+        : spec.sideFacade === ends[1] ? ends[0] : ends[1];
     const corner = ring[cornerIndex];
     const before = es[(cornerIndex + ring.length - 1) % ring.length];
     const after = es[cornerIndex];

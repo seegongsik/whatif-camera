@@ -59,7 +59,7 @@ class Reader {
   }
 }
 
-type Value = string | number | boolean;
+export type Value = string | number | boolean;
 
 function readValue(bytes: Uint8Array): Value | undefined {
   const r = new Reader(bytes);
@@ -184,6 +184,42 @@ export function latLonToTile(z: number, p: LatLon): { x: number; y: number } {
     x: ((p.lon + 180) / 360) * n,
     y: ((1 - Math.log(Math.tan(lat) + 1 / Math.cos(lat)) / Math.PI) / 2) * n,
   };
+}
+
+/** One feature of a named layer, with its properties decoded. */
+export type TileFeature = { type: number; props: Record<string, Value | undefined>; geometry: number[] };
+
+export function layerFeatures(tile: Uint8Array, name: string): { extent: number; features: TileFeature[] } | null {
+  const layer = readLayers(tile).find((l) => l.name === name);
+  if (!layer) return null;
+  const features = layer.features.map((f) => {
+    const props: Record<string, Value | undefined> = {};
+    for (let k = 0; k + 1 < f.tags.length; k += 2) props[layer.keys[f.tags[k]]] = layer.values[f.tags[k + 1]];
+    return { type: f.type, props, geometry: f.geometry };
+  });
+  return { extent: layer.extent, features };
+}
+
+/** Line strings (type 2) or points (type 1) of a feature, in tile coordinates. */
+export function geometryParts(geometry: number[]): { x: number; y: number }[][] {
+  const parts: { x: number; y: number }[][] = [];
+  let x = 0;
+  let y = 0;
+  let i = 0;
+  while (i < geometry.length) {
+    const command = geometry[i++];
+    const id = command & 0x7;
+    const count = Math.floor(command / 8);
+    if (id === 1 || id === 2) {
+      for (let k = 0; k < count && i + 1 < geometry.length; k += 1) {
+        x += zigzag(geometry[i++]);
+        y += zigzag(geometry[i++]);
+        if (id === 1) parts.push([{ x, y }]);
+        else parts[parts.length - 1]?.push({ x, y });
+      }
+    } else if (id !== 7) break;
+  }
+  return parts;
 }
 
 /** render_height the OpenMapTiles schema fills in when a building has no height or levels in OpenStreetMap. */
