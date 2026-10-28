@@ -142,3 +142,8 @@
   - 홈과 사진 입력 화면도 검은 배경(거리 모드 전체 `body.street-mode`).
   - 기기에 「동작 줄이기」가 켜져 있으면 빛 달리기를 건너뛰고 바로 전체.
 - 사진 위 라벨(사진 속 간판 위치에 이름)은 뺌: 사진은 연산 연출에만 쓰고, 「이 길이 맞나」는 Muse Spark 간판 확인이 알려 줌.
+
+## D16. 서비스 이름 「What's Ahead」 (민우 2026-10-28)
+- 민우: 「왓츠 어헤드」가 서비스명으로 딱. 홈 화면 제목(What's ahead?)에서 나온 이름.
+- 화면에 보이는 이름만 바꿈: 페이지 제목, 홈(제목 「What's Ahead?」, 위 작은 글씨는 「ONE PHOTO · THE NEXT 5 KM」), 쇼 맨 위 작은 글씨, 공유 카드(맨 위 「WHAT'S AHEAD」, 맨 아래 「What's Ahead · whatif-camera.vercel.app」, 파일 이름 whats-ahead.png), README·CLAUDE.md. 파비콘도 쇼 모양으로(검은 바탕에 빛나는 길과 점).
+- 그대로 둔 것: 저장소·패키지·배포 주소(whatif-camera), 코드 이름(`StreetAhead`, `/api/street`, `street-mode`), 지난 DECISIONS·PROGRESS 기록. 건물 모드는 「Building what-if」.

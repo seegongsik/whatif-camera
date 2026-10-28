@@ -1,5 +1,5 @@
 /**
- * Street Ahead as a moving infographic on black. While the street is looked
+ * What's Ahead (Street Ahead in the code) as a moving infographic on black. While the street is looked
  * up, the photo folds into a dot on a radar and the readings come in line by
  * line. Then a light runs from where you stand down the street, dotting each
  * place at its distance and side and stopping to name the landmarks, and the
@@ -178,7 +178,7 @@ export class StreetShow {
     this.lastPose = radarPose(options.headingDeg);
     this.canvas = h("canvas", { class: "show-canvas", role: "img", "aria-label": "The street ahead, drawn as a line of light with its places as dots" });
     this.ctx = this.canvas.getContext("2d")!;
-    this.kickerEl = h("div", { class: "show-kicker", text: "STREET AHEAD" });
+    this.kickerEl = h("div", { class: "show-kicker", text: "WHAT'S AHEAD" });
     this.nameEl = h("div", { class: "show-name", text: "Finding your street" });
     this.statsEl = h("div", { class: "show-stats" });
     this.questButton = h("button", { class: "show-pill hidden", onclick: () => this.questSheet?.open() }, "✦ Quest");
@@ -237,7 +237,7 @@ export class StreetShow {
     this.measureInsets();
     const credits = street.attribution.replace(/ \((ODbL|CDLA-Permissive-2\.0)\)/g, "");
     this.creditEl.textContent = street.synthetic && !credits.includes("SYNTHETIC") ? `${credits} · SYNTHETIC` : credits;
-    this.kickerEl.replaceChildren("STREET AHEAD", street.synthetic ? h("span", { class: "badge", text: "SYNTHETIC" }) : "");
+    this.kickerEl.replaceChildren("WHAT'S AHEAD", street.synthetic ? h("span", { class: "badge", text: "SYNTHETIC" }) : "");
     this.questSheet = new QuestSheet(street.shops, (quest, stops) => this.startQuest(quest, stops));
     this.questSheet.element.classList.add("show-sheet");
     this.element.append(this.questSheet.element);
@@ -1395,7 +1395,7 @@ export class StreetShow {
     const quest = this.focus?.quest ?? null;
     const canvas = drawShareCard({ street: this.street, photo: this.options.photo, quest });
     try {
-      if ((await shareCard(canvas, this.street.name ?? "Street Ahead")) === "saved") this.note("Saved the card as a picture", 3000);
+      if ((await shareCard(canvas, this.street.name ?? "What's Ahead")) === "saved") this.note("Saved the card as a picture", 3000);
     } catch (error) {
       this.note(`Could not share: ${error instanceof Error ? error.message : String(error)}`, 4000);
     }

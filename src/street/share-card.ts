@@ -74,7 +74,7 @@ export function drawShareCard(input: ShareInput): HTMLCanvasElement {
   ctx.textBaseline = "alphabetic";
   ctx.fillStyle = LIGHT;
   ctx.font = `600 30px ${MONO}`;
-  ctx.fillText(street.synthetic ? "STREET AHEAD · SYNTHETIC" : "STREET AHEAD", PAD, 120);
+  ctx.fillText(street.synthetic ? "WHAT'S AHEAD · SYNTHETIC" : "WHAT'S AHEAD", PAD, 120);
   const nameMax = W - 2 * PAD - (photo ? 250 : 0);
   const name = street.name ?? "Unnamed street";
   ctx.fillStyle = "#ffffff";
@@ -93,7 +93,7 @@ export function drawShareCard(input: ShareInput): HTMLCanvasElement {
   // The credits, in full.
   ctx.fillStyle = "rgba(255,255,255,0.6)";
   ctx.font = `500 24px ${SANS}`;
-  const credits = [...wrap(ctx, street.attribution, W - 2 * PAD), "Places change; the map may be out of date.", "What If Camera · Street Ahead"];
+  const credits = [...wrap(ctx, street.attribution, W - 2 * PAD), "Places change; the map may be out of date.", "What's Ahead · whatif-camera.vercel.app"];
   credits.forEach((line, i) => ctx.fillText(line, PAD, H - 40 - (credits.length - 1 - i) * 34));
   return canvas;
 }
@@ -329,7 +329,7 @@ function drawQuest(ctx: CanvasRenderingContext2D, quest: { quest: Quest; stops: 
 export async function shareCard(canvas: HTMLCanvasElement, title: string): Promise<"shared" | "saved" | "cancelled"> {
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
   if (!blob) throw new Error("The card could not be drawn.");
-  const file = new File([blob], "street-ahead.png", { type: "image/png" });
+  const file = new File([blob], "whats-ahead.png", { type: "image/png" });
   if (typeof navigator.canShare === "function" && navigator.canShare({ files: [file] })) {
     try {
       await navigator.share({ files: [file], title });
@@ -342,7 +342,7 @@ export async function shareCard(canvas: HTMLCanvasElement, title: string): Promi
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "street-ahead.png";
+  a.download = "whats-ahead.png";
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
   return "saved";

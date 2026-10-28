@@ -1,15 +1,15 @@
-# What If Camera
+# What's Ahead
 
 Two modes, one camera:
 
-- **Street Ahead** (the default): stand on a street, point your phone down it and take one photo. The map works out which street you are on and which way you are looking; then, on black, a light runs 5 km down the street from where you stand, dotting every place the map knows at its distance and side and stopping to name the landmarks. Tap Restaurants, Cafés, Shops or Entertainment and the light runs the street again for just those.
+- **What's Ahead** (the default): stand on a street, point your phone down it and take one photo. The map works out which street you are on and which way you are looking; then, on black, a light runs 5 km down the street from where you stand, dotting every place the map knows at its distance and side and stopping to name the landmarks. Tap Restaurants, Cafés, Shops or Entertainment and the light runs the street again for just those.
 - **Building what-if** (`/?mode=building`): point your phone at a building. One photo and the map turn it into a 3D model with its measurements, and then it shows what the building could become: a garden on the roof, green climbing up the walls, warm light after sunset. The result is a 9:16 video made for sharing.
 
-Entry for the Meta Global AI Developer Hackathon (October to November 2026). Operator: Minwoo Kwon (`seegongsik`). License: MIT.
+The project started as What If Camera; the repository, the package and the deployment (https://whatif-camera.vercel.app) keep that name, and the code calls the street mode Street Ahead. Entry for the Meta Global AI Developer Hackathon (October to November 2026). Operator: Minwoo Kwon (`seegongsik`). License: MIT.
 
 Shop data is what OpenStreetMap has mapped, shown with its source; shops change. Heights, floors and designs are estimates and ideas, shown as such. A real roof garden needs a structural check.
 
-## Street Ahead
+## What's Ahead
 
 ![The SYNTHETIC street: the radar while the street is looked up, the light stopping at a landmark, the whole street with its landmarks and the chips](docs/screenshots/2026-10-28-street-show-synthetic.jpg)
 
@@ -78,8 +78,8 @@ SYNTHETIC numbers from this repository, not real-world accuracy (that is not mea
 | Role | Model | Where | Status |
 | --- | --- | --- | --- |
 | Design choices and captions from the photo and the facts | `meta-models/muse-spark-open-1026` | Baseten, OpenAI-compatible Chat Completions | wired; used when `BASETEN_API_KEY` is set |
-| Street Ahead: which mapped places' names are readable in the photo | `meta-models/muse-spark-open-1026` | Baseten | wired (`/api/signs`); used when `BASETEN_API_KEY` is set |
-| Street Ahead: quest stops by id, a title and a line per stop | `meta-models/muse-spark-open-1026` | Baseten | wired (`/api/quest`); the app's own pick without a key |
+| What's Ahead: which mapped places' names are readable in the photo | `meta-models/muse-spark-open-1026` | Baseten | wired (`/api/signs`); used when `BASETEN_API_KEY` is set |
+| What's Ahead: quest stops by id, a title and a line per stop | `meta-models/muse-spark-open-1026` | Baseten | wired (`/api/quest`); the app's own pick without a key |
 | Building outline and corners from a tap (automatic marks) | `sam-3.1` | Meta Model API | planned; not called before the hackathon credits are confirmed |
 
 When the model is configured, the photo (downscaled to 1024 px) and the measured facts or the nearest places' names are sent to it through the app's server; nothing is stored there. The quest request carries no names and no photo. Muse Wonder is documented as unavailable in South Korea, so it is not used. The video is rendered, not generated: a video model would not keep the floor count and the dimension lines consistent from frame to frame.
@@ -90,14 +90,14 @@ When the model is configured, the photo (downscaled to 1024 px) and the measured
 | --- | --- | --- |
 | Building footprints, `height`, `building:levels` | OpenStreetMap via the Overpass API: `overpass-api.de`, then `overpass.private.coffee` (8 s each) | ODbL, "© OpenStreetMap contributors" shown on screen and in videos |
 | Fallback footprints when every Overpass server is full | OpenStreetMap vector tiles from OpenFreeMap (OpenMapTiles schema, zoom 14, `building` layer); their heights are approximate and used for neighbours only | ODbL; "© OpenStreetMap contributors · OpenMapTiles · OpenFreeMap" |
-| Streets for Street Ahead: named roads (`transportation_name` layer) and, as a fallback, places with their kind (`poi` layer; offices and bike docks left out) | OpenFreeMap vector tiles (OpenMapTiles schema, zoom 14, up to 12 tiles along the heading) | ODbL; "© OpenStreetMap contributors · OpenMapTiles · OpenFreeMap" |
+| Streets for What's Ahead: named roads (`transportation_name` layer) and, as a fallback, places with their kind (`poi` layer; offices and bike docks left out) | OpenFreeMap vector tiles (OpenMapTiles schema, zoom 14, up to 12 tiles along the heading) | ODbL; "© OpenStreetMap contributors · OpenMapTiles · OpenFreeMap" |
 | Places along the street: name, kind (`basic_category`, `taxonomy.primary`), confidence, websites, socials (Facebook pages), brand, position | Overture Maps places, release 2026-10-21.0, GeoParquet in the public bucket `overturemaps-us-west-2`: only the row groups that meet the street (`server/data/overture-places.ts`, made by `node scripts/overture-index.mjs`) and only these columns, with HTTP range requests; confidence 0.5 and up, open places, street-level kinds | CDLA-Permissive-2.0, "Places © Overture Maps Foundation" on screen |
 | Fallback street when the tiles cannot place the camera (roads with their nodes, `name`, `ref`), and shops when Overture is off (`shop`, `amenity`, `tourism`, `leisure` with `name`, `brand`, `opening_hours`, `cuisine`, `website`, `contact:instagram`, `contact:facebook`) | OpenStreetMap via the Overpass API (same servers as above; boxes along the street rather than a distance from it; 20 s in all). The answer's `notes` say why a fallback was used | ODbL, "© OpenStreetMap contributors" on screen |
 | Sun position | Astronomical Almanac low-precision formulas | computed |
 
 ## Assumptions
 
-Street Ahead: a compass within 40° of a street's direction means the camera looks along it; landmarks are a ranking from what the map says (kind, brand, name, confidence, links), not a measure of how famous a place is.
+What's Ahead: a compass within 40° of a street's direction means the camera looks along it; landmarks are a ranking from what the map says (kind, brand, name, confidence, links), not a measure of how famous a place is.
 
 Building what-if, listed in the facts panel whenever they are used: the roof stands at the same height at both outer edges (flat roof); 3.0 m per floor when OpenStreetMap has no level count; 1.5 m camera height when the foot of the walls is hidden; 67° field of view across the long side for a live capture (a typical 26 mm equivalent main camera; EXIF focal length for uploads); 9 m for neighbouring buildings without a mapped height (context only); compass uncertainty 20° when the phone reports none. Sizes of the decorations are design choices, not measurements.
 
@@ -138,7 +138,7 @@ All application code was written in this repository during the hackathon (from 2
 
 ## Limits
 
-Street Ahead:
+What's Ahead:
 
 - Only what OpenStreetMap has mapped, as it was mapped: shop coverage, names and opening hours vary by city, and shops close and open. The card says so and names the source.
 - The street is matched from GPS and compass alone. On a corner or under tall buildings the GPS fix can sit on the cross street; the app shows which street it took (its name at the top, and how far from your position when it had to look wider), and the sign check says whether the photo fits it.

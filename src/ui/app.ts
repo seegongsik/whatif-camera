@@ -73,6 +73,7 @@ export class App {
     this.root = root;
     // Street ahead is drawn on black throughout: home, photo form and show.
     document.body.classList.toggle("street-mode", this.mode === "street");
+    if (this.mode === "building") document.title = "Building what-if · What's Ahead";
   }
 
   async start(): Promise<void> {
@@ -196,8 +197,8 @@ export class App {
       h(
         "main",
         { class: "home" },
-        h("div", { class: "home-kicker", text: "STREET AHEAD" }),
-        h("h1", {}, "What's ahead", h("span", { class: "accent", text: "?" })),
+        h("div", { class: "home-kicker", text: "ONE PHOTO · THE NEXT 5 KM" }),
+        h("h1", {}, "What's Ahead", h("span", { class: "accent", text: "?" })),
         h("p", {
           class: "lead",
           text: "Point your phone down a street and take one photo. A light runs 5 km down the street, dotting every place the map knows at its distance and side, and stops at the landmarks. Then tap Restaurants, Cafés, Shops… to send it down the street again for just those.",
