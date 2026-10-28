@@ -571,6 +571,7 @@ main.show {
 }
 
 .show-heading {
+  flex: 1;
   min-width: 0;
 }
 

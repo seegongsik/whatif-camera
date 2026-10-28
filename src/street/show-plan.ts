@@ -13,18 +13,19 @@ import { pointAt, type Route } from "./route.js";
 
 export type GroupKey = "food" | "cafe" | "bar" | "shop" | "beauty" | "fun" | "stay" | "services";
 
-export type Group = { key: GroupKey; label: string; categories: readonly ShopCategory[]; color: string };
+/** A chip: its label, what its places are called when counted ("12 cafés"), its categories and colour. */
+export type Group = { key: GroupKey; label: string; noun: string; categories: readonly ShopCategory[]; color: string };
 
 /** The chips, in order. Colours that read on black and apart from one another. */
 export const GROUPS: readonly Group[] = [
-  { key: "food", label: "Restaurants", categories: ["food"], color: "#ff6b57" },
-  { key: "cafe", label: "Cafés", categories: ["cafe"], color: "#ffc53d" },
-  { key: "bar", label: "Bars", categories: ["bar"], color: "#b388ff" },
-  { key: "shop", label: "Shops", categories: ["fashion", "shop", "grocery"], color: "#38d9ff" },
-  { key: "beauty", label: "Beauty", categories: ["beauty"], color: "#ff74c8" },
-  { key: "fun", label: "Entertainment", categories: ["fun"], color: "#8dff6a" },
-  { key: "stay", label: "Hotels", categories: ["stay"], color: "#7f95ff" },
-  { key: "services", label: "Services", categories: ["health", "money"], color: "#a7b4c2" },
+  { key: "food", label: "Restaurants", noun: "restaurants", categories: ["food"], color: "#ff6b57" },
+  { key: "cafe", label: "Cafés", noun: "cafés", categories: ["cafe"], color: "#ffc53d" },
+  { key: "bar", label: "Bars", noun: "bars", categories: ["bar"], color: "#b388ff" },
+  { key: "shop", label: "Shops", noun: "shops", categories: ["fashion", "shop", "grocery"], color: "#38d9ff" },
+  { key: "beauty", label: "Beauty", noun: "beauty spots", categories: ["beauty"], color: "#ff74c8" },
+  { key: "fun", label: "Entertainment", noun: "things to do", categories: ["fun"], color: "#8dff6a" },
+  { key: "stay", label: "Hotels", noun: "hotels", categories: ["stay"], color: "#7f95ff" },
+  { key: "services", label: "Services", noun: "services", categories: ["health", "money"], color: "#a7b4c2" },
 ];
 
 /** The light when it shows every kind of place. */

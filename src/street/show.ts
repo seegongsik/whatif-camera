@@ -1255,7 +1255,7 @@ export class StreetShow {
     if (!street) return;
     const focus: Focus = {
       key: group.key,
-      noun: group.label.toLowerCase(),
+      noun: group.noun,
       color: group.color,
       match: (shop) => group.categories.includes(shop.category),
       picks: pickGroup(street.shops, group, street.route.length, street.name),
