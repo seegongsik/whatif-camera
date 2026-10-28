@@ -17,7 +17,7 @@ export function nearStreetsQuery(origin: LatLon, radiusM = 60): string {
   return `[out:json][timeout:20];way(around:${Math.round(radiusM)},${at(origin)})[highway~"^(${STREET_HIGHWAYS.join("|")})$"];out body geom;`;
 }
 
-type Box = { south: number; west: number; north: number; east: number };
+export type Box = { south: number; west: number; north: number; east: number };
 
 const box = (b: Box) => `${b.south.toFixed(6)},${b.west.toFixed(6)},${b.north.toFixed(6)},${b.east.toFixed(6)}`;
 

@@ -16,6 +16,7 @@
     "check:api": "node scripts/check-api.mjs"
   },
   "dependencies": {
+    "hyparquet": "1.31.3",
     "three": "^0.186.1"
   },
   "devDependencies": {

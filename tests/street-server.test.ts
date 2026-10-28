@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { latLonToTile } from "../src/data/mvt.js";
 import { clipLine, shopsFromTile, streetsFromTile } from "../src/street/tiles.js";
 import { SYNTHETIC_CAPTURE, SYNTHETIC_STREET_NAME, syntheticShopsJson, syntheticWaysJson } from "../src/street/synthetic.js";
-import { clearStreetCachesForTests, lookupStreet, tilesAhead } from "../server/street-sources.js";
+import { clearStreetCachesForTests, lookupStreet, MAX_PLACES, tilesAhead } from "../server/street-sources.js";
+import { localFrame, toLatLon } from "../src/geo/enu.js";
+import type { Shop } from "../src/street/osm.js";
 import { handleStreet } from "../server/routes.js";
 import { resetLimitsForTests } from "../server/limits.js";
 
@@ -52,6 +54,7 @@ function layer(name: string, keys: string[], values: string[], features: { type:
 }
 
 const origin = SYNTHETIC_CAPTURE.position;
+const SYNTHETIC_STREET_ORIGIN_FOR_TESTS = { lat: 37.5, lon: 127.0 };
 const t = latLonToTile(14, origin);
 const tile = { x: Math.floor(t.x), y: Math.floor(t.y) };
 const px = Math.round((t.x - tile.x) * 4096);
@@ -98,12 +101,12 @@ beforeEach(() => {
 });
 
 describe("street lookup (SYNTHETIC)", () => {
-  it("asks Overpass for the street beside the camera, the same street ahead, then its shops", async () => {
+  it("asks Overpass for the street beside the camera, the same street ahead, then its shops (Overture off)", async () => {
     const { fetchImpl, calls } = fakeFetch(({ body }) => {
       if (body.includes("out center tags")) return Response.json(syntheticShopsJson());
       return Response.json(syntheticWaysJson());
     });
-    const street = await lookupStreet(origin, SYNTHETIC_CAPTURE.headingDeg, { fetchImpl, env: {} });
+    const street = await lookupStreet(origin, SYNTHETIC_CAPTURE.headingDeg, { fetchImpl, env: { OVERTURE_PLACES: "off", FOOTPRINT_TILES: "off" } });
     expect(calls).toHaveLength(3);
     expect(calls[0].body).toContain("way(around:130,");
     expect(calls[1].body).toContain(`[name="${SYNTHETIC_STREET_NAME}"]`);
@@ -135,10 +138,69 @@ describe("street lookup (SYNTHETIC)", () => {
     const { fetchImpl } = fakeFetch(({ body }) => (body.includes("out center tags") ? Response.json(syntheticShopsJson()) : Response.json(syntheticWaysJson())));
     // 70 m east of the avenue.
     const off = { lat: origin.lat, lon: origin.lon + 70 / (111_320 * Math.cos((origin.lat * Math.PI) / 180)) };
-    const street = await lookupStreet(off, 4, { fetchImpl, env: {} }, "synthetic avenue");
+    const street = await lookupStreet(off, 4, { fetchImpl, env: { OVERTURE_PLACES: "off", FOOTPRINT_TILES: "off" } }, "synthetic avenue");
     expect(street.name).toBe(SYNTHETIC_STREET_NAME);
     expect(street.streetDistanceM).toBeGreaterThan(70);
     expect(street.notes).toBeUndefined();
+  });
+
+  it("takes the places from Overture: the street from Overpass, its shops left unasked", async () => {
+    const { fetchImpl, calls } = fakeFetch(({ body }) => (body.includes("out center tags") ? Response.json(syntheticShopsJson()) : Response.json(syntheticWaysJson())));
+    const frame = localFrame(SYNTHETIC_STREET_ORIGIN_FOR_TESTS);
+    // SYNTHETIC places: 600 on alternate sides of the avenue's first kilometre (before its bend), and one far off it.
+    const places: Shop[] = Array.from({ length: 600 }, (_, i) => ({
+      id: `ovt/0/0/${i}`,
+      name: `Place ${i}`,
+      category: "food",
+      kind: "category=restaurant",
+      point: toLatLon(frame, { x: i % 2 === 0 ? 15 : -15, y: 5 + i * 1.6 }),
+      confidence: i % 3 === 0 ? 0.95 : 0.6,
+      ...(i % 4 === 0 ? { facebook: `https://www.facebook.com/${1000 + i}` } : {}),
+    }));
+    places.push({ id: "ovt/0/0/far", name: "Far Place", category: "cafe", kind: "category=cafe", point: toLatLon(frame, { x: 400, y: 300 }) });
+    let asked = 0;
+    const street = await lookupStreet(origin, SYNTHETIC_CAPTURE.headingDeg, {
+      fetchImpl,
+      env: { FOOTPRINT_TILES: "off" },
+      places: async (boxes) => {
+        asked = boxes.length;
+        return places;
+      },
+    });
+    const overpass = calls.filter((c) => c.body.length > 0);
+    expect(overpass).toHaveLength(2);
+    expect(overpass.some((c) => c.body.includes("out center tags"))).toBe(false);
+    // A box per 250 m of the street: 5 km ahead and 20 m behind.
+    expect(asked).toBe(21);
+    expect(street.source).toContain("places: Overture Maps (release 2026-10-21.0)");
+    expect(street.attribution).toContain("Overture Maps Foundation");
+    expect(street.shops.every((s) => s.id.startsWith("ovt/0/0/") && s.id !== "ovt/0/0/far")).toBe(true);
+    // More places than a phone should draw: the most certain ones, then those with a Facebook page.
+    expect(street.shops).toHaveLength(MAX_PLACES);
+    expect(street.placesFound).toBe(600);
+    expect(street.shops.filter((s) => (s.confidence ?? 0) > 0.9)).toHaveLength(200);
+    expect(street.shops.every((s, i) => i === 0 || s.s >= street.shops[i - 1].s)).toBe(true);
+    expect(street.notes).toBeUndefined();
+  });
+
+  it("falls back to the map's places when Overture cannot answer", async () => {
+    const { fetchImpl } = fakeFetch(({ url, body }) => {
+      if (body.length > 0) return Response.json(syntheticWaysJson());
+      if (url.endsWith("/planet")) return Response.json({ tiles: ["https://tiles.example/{z}/{x}/{y}.pbf"] });
+      if (url.includes(`/14/${tile.x}/${tile.y}.pbf`)) return new Response(new Blob([syntheticTile() as BlobPart]));
+      return new Response(null, { status: 204 });
+    });
+    const street = await lookupStreet(origin, SYNTHETIC_CAPTURE.headingDeg, {
+      fetchImpl,
+      env: {},
+      places: async () => {
+        throw new Error("bucket unreachable");
+      },
+    });
+    expect(street.name).toBe(SYNTHETIC_STREET_NAME);
+    expect(street.shops.map((s) => s.name)).toEqual(["Tile Cafe"]);
+    expect(street.source).toContain("places: OpenFreeMap vector tiles");
+    expect(street.notes).toEqual(["overture: bucket unreachable"]);
   });
 
   it("says when no street runs beside the camera", async () => {

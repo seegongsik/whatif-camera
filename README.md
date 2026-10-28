@@ -15,7 +15,7 @@ Shop data is what OpenStreetMap has mapped, shown with its source; shops change.
 
 1. **Which street**: the photo's GPS fix and compass heading go to `/api/street`. The server asks OpenStreetMap (Overpass API) for the roads around and picks the one that runs beside the camera in the direction it faces: within 40° of the heading, nearer and straighter first, main roads and named roads ahead of service lanes; within 45 m, or within 120 m when none is that near (a GPS fix between tall buildings is often that far off; the page then says how far). A starting point picked from the home page also sends the street's name, which picks it out.
 2. **5 km ahead**: the route follows that road through every junction: the way that carries the same name (or road number) first, if it turns no more than 60°; otherwise the straightest one within 30°. It stops at 5 km or where the road ends.
-3. **Shops along it**: every place with a name or brand within a corridor of the route (25 to 60 m each side by road class): food, cafés, bars, fashion, groceries, beauty, health, banks, things to do, places to stay and other shops. Each gets its distance along the street and its side. A shop mapped twice (a point and its building) shows once.
+3. **Shops along it**: every named place within a corridor of the route (25 to 60 m each side by road class): food, cafés, bars, fashion, groceries, beauty, health, banks, things to do, places to stay and other shops. Each gets its distance along the street and its side. The places come from **Overture Maps** (the Overture Maps Foundation, which Meta co-founded; most of its places come from Meta's place data, so many have a Facebook page and a website), read straight from its public release; when Overture cannot answer, from OpenStreetMap. A street keeps at most 400 places (Overture's most certain ones, then those with links); a place mapped twice shows once.
 4. **On the photo**: the nearest shops in view are labelled where their signs hang, with the camera that took the photo. When the compass points within 25° of the street, the camera is taken to look along it (phone compasses are often 10 to 20° off between buildings).
 5. **Down the street**: scrolling flies a drone camera along the route. Each shop is a signboard in its category's colour with its name and its distance, standing on its side at its distance; places within 9 m share a pole (up to six signs, then "+N more"). A post every 250 m and an arch every kilometre; a small map shows where you are (tap it to jump); chips filter the kinds of places; "Next:" names the next place ahead. Tap a sign for its card: kind of place, opening hours as mapped, and its Instagram, Facebook and website links when the map has them.
 6. **Signs in the photo** (Muse Spark Open): the photo and the names of the nearest mapped places go to the model, which says which names it can actually read in the picture (and where: left, middle or right). Read ones get a ✓ on the photo and a line says "Right street, right way"; none read, or a photo of building fronts, says what to try instead. The model answers with ids from the list and fixed words only.
@@ -89,6 +89,7 @@ When the model is configured, the photo (downscaled to 1024 px) and the measured
 | Building footprints, `height`, `building:levels` | OpenStreetMap via the Overpass API: `overpass-api.de`, then `overpass.private.coffee` (8 s each) | ODbL, "© OpenStreetMap contributors" shown on screen and in videos |
 | Fallback footprints when every Overpass server is full | OpenStreetMap vector tiles from OpenFreeMap (OpenMapTiles schema, zoom 14, `building` layer); their heights are approximate and used for neighbours only | ODbL; "© OpenStreetMap contributors · OpenMapTiles · OpenFreeMap" |
 | Streets and shops for Street Ahead: roads with their nodes, `name`, `ref`; places with `shop`, `amenity`, `tourism` or `leisure` and their `name`, `brand`, `opening_hours`, `cuisine`, `website`, `contact:instagram`, `contact:facebook` | OpenStreetMap via the Overpass API (same servers as above; boxes along the street rather than a distance from it; 32 s for all calls in all) | ODbL, "© OpenStreetMap contributors" on screen |
+| Places along the street: name, kind (`basic_category`, `taxonomy.primary`), confidence, websites, socials (Facebook pages), brand, position | Overture Maps places, release 2026-10-21.0, GeoParquet in the public bucket `overturemaps-us-west-2`: only the row groups that meet the street (`server/data/overture-places.ts`, made by `node scripts/overture-index.mjs`) and only these columns, with HTTP range requests; confidence 0.5 and up, open places, street-level kinds | CDLA-Permissive-2.0, "Places © Overture Maps Foundation" on screen |
 | Fallback streets and shops | OpenFreeMap vector tiles (zoom 14, `transportation_name` and `poi` layers): named roads and places with their kind only, no hours or links; offices and bike docks left out. The answer's `notes` say why Overpass was not used | ODbL; "© OpenStreetMap contributors · OpenMapTiles · OpenFreeMap" |
 | Sun position | Astronomical Almanac low-precision formulas | computed |
 
@@ -119,6 +120,7 @@ Server side only; `/api/status` returns booleans.
 | `MODEL_API_KEY` (or `META_API_KEY`) | Meta Model API (SAM 3.1), not called yet |
 | `OVERPASS_URLS` (or `OVERPASS_URL`) | Overpass API instances to try first, comma-separated, HTTPS only |
 | `FOOTPRINT_TILES` | `off` disables the vector-tile fallback |
+| `OVERTURE_PLACES` | `off` takes the places from OpenStreetMap only |
 | `DAILY_FOOTPRINT_CALL_CAP`, `DAILY_SPARK_CALL_CAP`, `DAILY_STREET_CALL_CAP` | per-instance daily caps (defaults 2000, 300 and 2000) |
 
 ## Open source used
@@ -126,6 +128,7 @@ Server side only; `/api/status` returns booleans.
 | Package | Role | License |
 | --- | --- | --- |
 | `three` (with its `examples/jsm` lines and BufferGeometryUtils) | 3D rendering | MIT |
+| `hyparquet` | Reads Overture's Parquet files on the server (row groups and columns by range request; zstd through Node's own `zlib`) | MIT |
 | `vite`, `vitest` | build, dev server, tests | MIT |
 | `typescript`, `typescript-eslint`, `eslint`, `@eslint/js`, `globals`, `@types/three`, `@types/node` | types and lint | Apache-2.0 / MIT |
 
@@ -139,6 +142,7 @@ Street Ahead:
 - The street is matched from GPS and compass alone. On a corner or under tall buildings the GPS fix can sit on the cross street; the app shows which street it took (its name at the top) and the photo labels show whether it fits.
 - A street that changes name keeps going only if the next way runs straight on; a dual carriageway mapped as two one-way roads is followed along the carriageway beside the camera.
 - In the tile fallback, roads without a name cannot be matched and places carry only their kind: no hours, links or brands. On 2026-10-28 every street lookup from the deployment ended in the tile fallback (Seoul, New York, Vancouver), so cards there had no Instagram or Facebook links.
+- Overture's places are a monthly snapshot (release 2026-10-21.0; older releases leave the bucket after a few months, so the index is remade for a new one). Its place data has no opening hours; many places are on upper floors rather than at street level.
 - Quest lines are ideas from the kind of place, not reviews; hours are as mapped and may be out of date. The sign check only knows names on the map: a sign it reads that the map lacks is not reported.
 - Not checked on real streets yet: the build environment cannot reach the map servers (`PROGRESS.md`).
 

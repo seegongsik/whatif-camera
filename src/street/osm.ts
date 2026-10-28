@@ -45,6 +45,8 @@ export type Shop = {
   website?: string;
   instagram?: string;
   facebook?: string;
+  /** How sure the source is that the place exists (0 to 1), when it says. */
+  confidence?: number;
 };
 
 /** Roads a person can stand beside; sidewalks mapped as their own ways are left out (they have no name). */
