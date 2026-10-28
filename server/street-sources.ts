@@ -1,10 +1,11 @@
 /**
  * The street ahead of a camera. The street itself comes from OpenStreetMap:
- * Overpass first (exact ways with their nodes), with OpenFreeMap vector
- * tiles loading alongside for when the Overpass servers are full. The places
- * along it come from Overture Maps (most of them from Meta's place data, with
+ * OpenFreeMap vector tiles first (a CDN: quick, and up when the Overpass
+ * servers are full, which from the deployment was always), then Overpass
+ * when the tiles cannot place the camera on a named street. The places along
+ * it come from Overture Maps (most of them from Meta's place data, with
  * Facebook pages and websites); when Overture cannot answer, from
- * OpenStreetMap (Overpass, or the tiles' places). Answers are cached per
+ * OpenStreetMap (the tiles' places, or Overpass). Answers are cached per
  * instance for a quarter of an hour.
  */
 import { localFrame, toLatLon, toLocal, type LatLon } from "../src/geo/enu.js";
@@ -25,12 +26,12 @@ import type { EnvMap } from "./keys.js";
 const CACHE_MS = 15 * 60 * 1000;
 const OVERPASS_TIMEOUT_MS = 20_000;
 /**
- * Overpass gets this long in all, server after server, before the tiles
- * (loaded meanwhile) take over. A healthy server answers both street queries
- * in a few seconds; from the deployment on 2026-10-28 it never answered, and
- * a longer wait only made every lookup slower.
+ * Overpass gets this long in all, server after server, when the tiles could
+ * not place the camera. On 2026-10-28 it never answered the deployment in
+ * time (overpass-api.de "at capacity", the second server timing out), so it
+ * is the fallback rather than the first try.
  */
-const OVERPASS_BUDGET_MS = 6_000;
+const OVERPASS_BUDGET_MS = 20_000;
 /** The most places one street keeps: a 5 km street in Seoul has well over a thousand, more signs than a phone should draw. */
 export const MAX_PLACES = 400;
 export const OVERTURE_ATTRIBUTION = "Places © Overture Maps Foundation (CDLA-Permissive-2.0)";
@@ -168,39 +169,44 @@ export async function lookupStreet(origin: LatLon, headingDeg: number, deps: Dep
 
   const failures: string[] = [];
   const useOverture = env.OVERTURE_PLACES !== "off";
-  // The tiles load alongside Overpass, so the fallback is ready the moment Overpass gives up.
-  const tiles: Promise<{ ways: StreetWay[]; shops: Shop[] } | Error> | null =
-    env.FOOTPRINT_TILES !== "off" ? fromTiles(origin, headingDeg, deps).catch((error: unknown) => (error instanceof Error ? error : new Error(String(error)))) : null;
-  const tilesResult = async () => {
-    const result = tiles ? await tiles : null;
-    if (result instanceof Error) failures.push(`tiles: ${errorText(result)}`);
-    return result instanceof Error ? null : result;
-  };
+  const fetchedAt = new Date(now()).toISOString();
+  const bareStreet = (ways: StreetWay[], source: string, attribution: string) =>
+    buildStreetAhead({ origin, headingDeg, nameHint, ways, shops: [], source, attribution, fetchedAt, synthetic: false });
 
-  // The street: Overpass, else the tiles.
+  // The street: the tiles first, Overpass when they cannot place the camera on a named street.
   let base: { ways: StreetWay[]; shops: Shop[]; source: string; attribution: string; overpass: boolean } | null = null;
-  const deadline = Date.now() + OVERPASS_BUDGET_MS;
-  for (const url of overpassUrls(env)) {
+  let tileData: { ways: StreetWay[]; shops: Shop[] } | null = null;
+  let tilesFoundNoStreet = false;
+  if (env.FOOTPRINT_TILES !== "off") {
     try {
-      const data = await fromOverpass(url, origin, headingDeg, nameHint, deps, deadline, !useOverture);
-      base = { ...data, source: `OpenStreetMap via Overpass API (${new URL(url).host})`, attribution: OSM_ATTRIBUTION, overpass: true };
-      break;
+      tileData = await fromTiles(origin, headingDeg, deps);
+      const source = "OpenStreetMap via OpenFreeMap vector tiles";
+      if (bareStreet(tileData.ways, source, TILE_ATTRIBUTION)) base = { ...tileData, source, attribution: TILE_ATTRIBUTION, overpass: false };
+      else tilesFoundNoStreet = true;
     } catch (error) {
-      failures.push(`${new URL(url).host}: ${errorText(error)}`);
+      failures.push(`tiles: ${errorText(error)}`);
     }
   }
   if (!base) {
-    const data = await tilesResult();
-    if (data) base = { ...data, source: "OpenStreetMap via OpenFreeMap vector tiles", attribution: TILE_ATTRIBUTION, overpass: false };
+    const deadline = Date.now() + OVERPASS_BUDGET_MS;
+    for (const url of overpassUrls(env)) {
+      try {
+        const data = await fromOverpass(url, origin, headingDeg, nameHint, deps, deadline, !useOverture);
+        base = { ...data, source: `OpenStreetMap via Overpass API (${new URL(url).host})`, attribution: OSM_ATTRIBUTION, overpass: true };
+        break;
+      } catch (error) {
+        failures.push(`${new URL(url).host}: ${errorText(error)}`);
+      }
+    }
   }
-  if (!base) throw new UpstreamError(502, `No map source answered. ${failures.join(" | ")}`);
-  const fetchedAt = new Date(now()).toISOString();
-  const bare = buildStreetAhead({ origin, headingDeg, nameHint, ways: base.ways, shops: [], source: base.source, attribution: base.attribution, fetchedAt, synthetic: false });
-  if (!bare) {
-    if (base.overpass) throw new UpstreamError(404, "No street runs beside you in the direction the camera faces (OpenStreetMap).");
-    const why = failures.length > 0 ? ` Overpass did not answer first (${failures.join(" | ")}).` : "";
-    throw new UpstreamError(404, `No named street runs beside you in the direction the camera faces (map tiles).${why}`);
+  if (!base) {
+    if (tilesFoundNoStreet) {
+      throw new UpstreamError(404, `No named street runs beside you in the direction the camera faces (map tiles). Overpass did not answer (${failures.join(" | ")}).`);
+    }
+    throw new UpstreamError(502, `No map source answered. ${failures.join(" | ")}`);
   }
+  const bare = bareStreet(base.ways, base.source, base.attribution);
+  if (!bare) throw new UpstreamError(404, "No street runs beside you in the direction the camera faces (OpenStreetMap).");
 
   // The places: Overture, else what the map had.
   let shops = base.shops;
@@ -218,14 +224,11 @@ export async function lookupStreet(origin: LatLon, headingDeg: number, deps: Dep
     } catch (error) {
       failures.push(`overture: ${errorText(error)}`);
     }
-    if (shops.length === 0 && base.overpass) {
+    if (shops.length === 0 && base.overpass && tileData) {
       // Overpass was asked for the street only; the tiles' places stand in.
-      const data = await tilesResult();
-      if (data) {
-        shops = data.shops;
-        source = `${source}; places: OpenFreeMap vector tiles`;
-        attribution = TILE_ATTRIBUTION;
-      }
+      shops = tileData.shops;
+      source = `${source}; places: OpenFreeMap vector tiles`;
+      attribution = TILE_ATTRIBUTION;
     }
   }
   const street = buildStreetAhead({ origin, headingDeg, nameHint, ways: base.ways, shops, source, attribution, fetchedAt, synthetic: false, notes: failures, maxShops: MAX_PLACES });

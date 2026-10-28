@@ -117,21 +117,43 @@ describe("street lookup (SYNTHETIC)", () => {
     expect(street.shops.length).toBeGreaterThan(80);
   });
 
-  it("falls back to the map tiles when every Overpass server fails", async () => {
+  it("takes the street from the map tiles first, without asking Overpass", async () => {
     const { fetchImpl, calls } = fakeFetch(({ url }) => {
       if (url.includes("interpreter")) return new Response("busy", { status: 504 });
       if (url.endsWith("/planet")) return Response.json({ tiles: ["https://tiles.example/{z}/{x}/{y}.pbf"] });
       if (url.includes(`/14/${tile.x}/${tile.y}.pbf`)) return new Response(new Blob([syntheticTile() as BlobPart]));
       return new Response(null, { status: 204 });
     });
-    const street = await lookupStreet(origin, 0, { fetchImpl, env: {} });
-    expect(calls.filter((c) => c.url.includes("interpreter"))).toHaveLength(2);
+    const street = await lookupStreet(origin, 0, { fetchImpl, env: { OVERTURE_PLACES: "off" } });
+    expect(calls.filter((c) => c.url.includes("interpreter"))).toHaveLength(0);
     expect(street.source).toContain("vector tiles");
     expect(street.name).toBe("Tile Street");
     expect(street.shops.map((s) => s.name)).toEqual(["Tile Cafe"]);
     expect(street.shops[0].side).toBe("right");
-    // Why the tiles: kept on the answer.
-    expect(street.notes?.join(" ")).toMatch(/504 busy/);
+    expect(street.notes).toBeUndefined();
+  });
+
+  it("asks Overpass when the tiles are down, and says why", async () => {
+    const { fetchImpl, calls } = fakeFetch(({ url, body }) => {
+      if (url.endsWith("/planet")) return new Response("down", { status: 500 });
+      return body.includes("out center tags") ? Response.json(syntheticShopsJson()) : Response.json(syntheticWaysJson());
+    });
+    const street = await lookupStreet(origin, SYNTHETIC_CAPTURE.headingDeg, { fetchImpl, env: { OVERTURE_PLACES: "off" } });
+    expect(calls.filter((c) => c.url.includes("interpreter"))).toHaveLength(3);
+    expect(street.name).toBe(SYNTHETIC_STREET_NAME);
+    expect(street.source).toContain("Overpass API");
+    expect(street.notes).toEqual(["tiles: TileJSON 500"]);
+  });
+
+  it("says when the tiles have no named street there and Overpass is busy", async () => {
+    const { fetchImpl } = fakeFetch(({ url }) => {
+      if (url.includes("interpreter")) return new Response("busy", { status: 504 });
+      if (url.endsWith("/planet")) return Response.json({ tiles: ["https://tiles.example/{z}/{x}/{y}.pbf"] });
+      if (url.includes(`/14/${tile.x}/${tile.y}.pbf`)) return new Response(new Blob([syntheticTile() as BlobPart]));
+      return new Response(null, { status: 204 });
+    });
+    // Looking east, across the only road in the tile.
+    await expect(lookupStreet(origin, 90, { fetchImpl, env: { OVERTURE_PLACES: "off" } })).rejects.toThrow(/No named street runs beside you .*Overpass did not answer .*504 busy/);
   });
 
   it("takes the named street when the starting point is a little off", async () => {
@@ -197,9 +219,10 @@ describe("street lookup (SYNTHETIC)", () => {
         throw new Error("bucket unreachable");
       },
     });
-    expect(street.name).toBe(SYNTHETIC_STREET_NAME);
+    // The street and its places both from the tiles.
+    expect(street.name).toBe("Tile Street");
     expect(street.shops.map((s) => s.name)).toEqual(["Tile Cafe"]);
-    expect(street.source).toContain("places: OpenFreeMap vector tiles");
+    expect(street.source).toBe("OpenStreetMap via OpenFreeMap vector tiles");
     expect(street.notes).toEqual(["overture: bucket unreachable"]);
   });
 
