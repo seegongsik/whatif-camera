@@ -18,7 +18,6 @@ export const CATEGORY_STYLE: Record<ShopCategory, { color: string; word: string;
   shop: { color: "#546e7a", word: "SHOP", label: "Shops" },
 };
 
-
 /** "120 m" up to a kilometre, then "1.4 km". */
 export function distanceText(m: number): string {
   if (m < 0) return "here";
