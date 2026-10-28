@@ -30,7 +30,7 @@ import { Player, pickRecordingType } from "../scene/player.js";
 import { syntheticScene } from "../synthetic/scene.js";
 import type { StreetAhead } from "../street/street.js";
 import { syntheticStreet } from "../street/synthetic.js";
-import { StreetView } from "../street/view.js";
+import { StreetShow } from "../street/show.js";
 import { h, fmt } from "./dom.js";
 import { factsPanel } from "./facts.js";
 import { Marker } from "./marker.js";
@@ -67,10 +67,12 @@ export class App {
   private camera: LiveCamera | null = null;
   private hudTimer = 0;
   private readonly mode: "street" | "building" = params.get("mode") === "building" ? "building" : "street";
-  private streetView: StreetView | null = null;
+  private streetShow: StreetShow | null = null;
 
   constructor(root: HTMLElement) {
     this.root = root;
+    // Street ahead is drawn on black throughout: home, photo form and show.
+    document.body.classList.toggle("street-mode", this.mode === "street");
   }
 
   async start(): Promise<void> {
@@ -116,8 +118,8 @@ export class App {
 
   private screen(...children: (Node | null | false)[]): void {
     this.player?.pause();
-    this.streetView?.dispose();
-    this.streetView = null;
+    this.streetShow?.dispose();
+    this.streetShow = null;
     this.root.replaceChildren(...children.filter((c): c is Node => Boolean(c)));
     window.scrollTo(0, 0);
   }
@@ -194,10 +196,11 @@ export class App {
       h(
         "main",
         { class: "home" },
+        h("div", { class: "home-kicker", text: "STREET AHEAD" }),
         h("h1", {}, "What's ahead", h("span", { class: "accent", text: "?" })),
         h("p", {
           class: "lead",
-          text: "Point your phone down a street and take one photo. Every shop the map knows for the next 5 km appears where it stands; scroll to fly down the street.",
+          text: "Point your phone down a street and take one photo. A light runs 5 km down the street, dotting every place the map knows at its distance and side, and stops at the landmarks. Then tap Restaurants, Cafés, Shops… to send it down the street again for just those.",
         }),
         error ? h("p", { class: "error", text: error }) : null,
         h("button", { class: "primary big", onclick: () => void this.openCamera() }, "Open camera"),
@@ -210,46 +213,39 @@ export class App {
         h("p", { class: "muted small", text: "Or fly down a street from the map alone:" }),
         h("div", { class: "street-places" }, ...FAMOUS_STREETS.map((s) => h("button", { onclick: () => void this.streetFor(s) }, s.label))),
         photoInput,
-        h("p", { class: "muted small", text: "Streets and shops © OpenStreetMap contributors (ODbL). Shops change; the map may be out of date." }),
+        h("p", { class: "muted small", text: "Streets © OpenStreetMap contributors (ODbL); places © Overture Maps Foundation (CDLA-Permissive-2.0). Places change; the map may be out of date." }),
         h("p", { class: "muted small" }, h("a", { href: "?mode=building" }, "Building what-if (the earlier prototype)")),
       ),
     );
   }
 
   private async streetFor(at: { lat: number; lon: number; headingDeg: number; street?: string }, photo?: HTMLCanvasElement, capture?: CaptureMeta): Promise<void> {
-    this.screen(h("main", { class: "page center" }, h("div", { class: "spinner" }), h("p", { text: "Finding the street ahead and its shops (OpenStreetMap)…" })));
+    // The show starts at once: its radar runs while the street is looked up.
+    const show = this.openShow(at, photo, capture, () => void this.streetFor(at, photo, capture));
     try {
       const query = new URLSearchParams({ lat: String(at.lat), lon: String(at.lon), heading: String(at.headingDeg) });
       if (at.street) query.set("street", at.street);
       const res = await fetch(`/api/street?${query}`);
       const body = (await res.json().catch(() => ({}))) as Partial<StreetAhead> & { error?: string };
       if (!res.ok || !body.route) throw new Error(body.error ?? `The street lookup answered ${res.status}.`);
-      this.showStreet(body as StreetAhead, photo, capture);
+      show.load(body as StreetAhead);
     } catch (error) {
-      this.screen(
-        h(
-          "main",
-          { class: "page" },
-          h("h2", { text: "No street found" }),
-          h("p", { class: "error", text: error instanceof Error ? error.message : String(error) }),
-          h(
-            "div",
-            { class: "row" },
-            h("button", { class: "ghost", onclick: () => this.home() }, "Home"),
-            h("button", { class: "primary", onclick: () => void this.streetFor(at, photo, capture) }, "Try again"),
-          ),
-        ),
-      );
+      show.fail(error instanceof Error ? error.message : String(error));
     }
   }
 
-  private showStreet(street: StreetAhead, photo?: HTMLCanvasElement, capture?: CaptureMeta): void {
-    const view = new StreetView({ street, photo, capture, onClose: () => this.home() });
-    this.screen(view.element);
-    this.streetView = view;
-    view.start();
+  private showStreet(street: StreetAhead): void {
+    this.openShow({ lat: street.origin.lat, lon: street.origin.lon, headingDeg: street.headingDeg }).load(street);
+  }
+
+  private openShow(at: { lat: number; lon: number; headingDeg: number }, photo?: HTMLCanvasElement, capture?: CaptureMeta, onRetry?: () => void): StreetShow {
+    const show = new StreetShow({ origin: { lat: at.lat, lon: at.lon }, headingDeg: at.headingDeg, photo, capture, onClose: () => this.home(), onRetry });
+    this.screen(show.element);
+    this.streetShow = show;
+    show.start();
     // Handle for the browser tests on the dev server.
-    if (import.meta.env.DEV) Object.assign(window, { __street: view });
+    if (import.meta.env.DEV) Object.assign(window, { __street: show });
+    return show;
   }
 
   private stopLive(): void {
@@ -422,7 +418,7 @@ export class App {
         preview,
         note,
         h("div", { class: "form" }, fLat.el, fLon.el, useHere, fHead.el),
-        h("p", { class: "muted small", text: "Pitch and roll are worked out later from the building's vertical edges." }),
+        this.mode === "building" ? h("p", { class: "muted small", text: "Pitch and roll are worked out later from the building's vertical edges." }) : null,
         h("div", { class: "row" }, h("button", { class: "ghost", onclick: () => this.home() }, "Back"), go),
       ),
     );

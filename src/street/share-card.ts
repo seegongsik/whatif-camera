@@ -1,20 +1,24 @@
 /**
- * A 1080 × 1920 card of the street ahead for stories and chats: the photo
- * (when there is one), the street's name, the quest or the next places, a
- * small map, and the map's credit. Shared through the phone's share sheet
- * (Instagram Stories, WhatsApp and the rest), or saved where sharing files
- * is not supported.
+ * A 1080 × 1920 card of the street ahead for stories and chats, in the
+ * show's look: the whole street as light on black with its landmarks (or
+ * the quest's stops), how many places of each kind it holds, the photo in
+ * a circle, and the map's credits in full. Shared through the phone's share
+ * sheet (Instagram Stories, WhatsApp and the rest), or saved where sharing
+ * files is not supported.
  */
+import type { EN } from "../geo/enu.js";
 import type { ShopAhead } from "./ahead.js";
-import { localRoute } from "./photo-labels.js";
 import type { Quest } from "./quest.js";
 import { pointAt } from "./route.js";
-import { CATEGORY_STYLE, distanceText } from "./signs.js";
-import type { StreetAhead } from "./street.js";
+import { drawTag, glow, MONO, rgba, SANS, tagMeasure, type TagStyle } from "./show-draw.js";
+import { dotSpot, groupOf, GROUPS, kindWord, LIGHT, overviewPose, pickLandmarks, projector, QUEST_GOLD, sampleRoute, type Pose, type Projected } from "./show-plan.js";
+import { distanceText } from "./signs.js";
+import { layoutLabels, type LabelInput } from "./street-labels.js";
+import { localRoute, type StreetAhead } from "./street.js";
 
 const W = 1080;
 const H = 1920;
-const FONT = '"Inter", system-ui, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", sans-serif';
+const PAD = 72;
 
 export type ShareInput = {
   street: StreetAhead;
@@ -22,20 +26,34 @@ export type ShareInput = {
   quest?: { quest: Quest; stops: ShopAhead[] } | null;
 };
 
-function fitFont(ctx: CanvasRenderingContext2D, text: string, weight: number, size: number, maxWidth: number, minSize = 28): number {
+function fitFont(ctx: CanvasRenderingContext2D, text: string, weight: number, size: number, maxWidth: number, minSize = 28): void {
   let s = size;
-  ctx.font = `${weight} ${s}px ${FONT}`;
+  ctx.font = `${weight} ${s}px ${SANS}`;
   while (s > minSize && ctx.measureText(text).width > maxWidth) {
     s -= 2;
-    ctx.font = `${weight} ${s}px ${FONT}`;
+    ctx.font = `${weight} ${s}px ${SANS}`;
   }
-  return s;
 }
 
 function ellipsize(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
   let t = text;
   while (t.length > 1 && ctx.measureText(t).width > maxWidth) t = `${t.slice(0, -2)}…`;
   return t;
+}
+
+/** Words onto lines no wider than `maxWidth`, in the current font. */
+function wrap(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+  const lines: string[] = [];
+  let line = "";
+  for (const word of text.split(" ")) {
+    const next = line ? `${line} ${word}` : word;
+    if (line && ctx.measureText(next).width > maxWidth) {
+      lines.push(line);
+      line = word;
+    } else line = next;
+  }
+  if (line) lines.push(line);
+  return lines;
 }
 
 /** Draws the card. Every word on it comes from the map, the app, or the quest's checked lines. */
@@ -45,167 +63,266 @@ export function drawShareCard(input: ShareInput): HTMLCanvasElement {
   canvas.width = W;
   canvas.height = H;
   const ctx = canvas.getContext("2d")!;
-
-  // Background: the photo across the top, fading into the card's colour.
-  const sky = ctx.createLinearGradient(0, 0, 0, H);
-  sky.addColorStop(0, "#5aa7e8");
-  sky.addColorStop(1, "#1b2a3a");
-  ctx.fillStyle = sky;
+  const bg = ctx.createRadialGradient(W / 2, H * 0.42, 0, W / 2, H * 0.42, H * 0.7);
+  bg.addColorStop(0, "#0b1522");
+  bg.addColorStop(0.55, "#04080d");
+  bg.addColorStop(1, "#000000");
+  ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
-  if (photo) {
-    const scale = Math.max(W / photo.width, (H * 0.62) / photo.height);
-    const pw = photo.width * scale;
-    const ph = photo.height * scale;
-    ctx.drawImage(photo, (W - pw) / 2, 0, pw, ph);
-  } else {
-    drawRoute(ctx, input, { x: 140, y: 150, w: W - 280, h: H * 0.3 });
-  }
-  const shade = ctx.createLinearGradient(0, H * 0.25, 0, H * 0.62);
-  shade.addColorStop(0, "rgba(16, 24, 34, 0)");
-  shade.addColorStop(1, "rgba(16, 24, 34, 1)");
-  ctx.fillStyle = shade;
-  ctx.fillRect(0, H * 0.25, W, H * 0.37);
-  ctx.fillStyle = "#101822";
-  ctx.fillRect(0, H * 0.62, W, H * 0.38);
 
-  const pad = 72;
-  let y = H * 0.47;
-  ctx.fillStyle = "#ffcb3d";
-  ctx.font = `800 34px ${FONT}`;
+  // The title.
   ctx.textBaseline = "alphabetic";
-  ctx.fillText(street.synthetic ? "STREET AHEAD · SYNTHETIC" : "STREET AHEAD", pad, y);
-  y += 96;
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle = LIGHT;
+  ctx.font = `600 30px ${MONO}`;
+  ctx.fillText(street.synthetic ? "STREET AHEAD · SYNTHETIC" : "STREET AHEAD", PAD, 120);
+  const nameMax = W - 2 * PAD - (photo ? 250 : 0);
   const name = street.name ?? "Unnamed street";
-  fitFont(ctx, name, 900, 92, W - 2 * pad, 48);
-  ctx.fillText(ellipsize(ctx, name, W - 2 * pad), pad, y);
-  y += 64;
-  ctx.fillStyle = "rgba(255,255,255,0.75)";
-  ctx.font = `600 36px ${FONT}`;
-  ctx.fillText(`${street.shops.length} places in the next ${distanceText(street.route.length)}`, pad, y);
-  y += 90;
+  ctx.fillStyle = "#ffffff";
+  fitFont(ctx, name, 800, 96, nameMax, 48);
+  ctx.fillText(ellipsize(ctx, name, nameMax), PAD, 222);
+  ctx.fillStyle = "rgba(255,255,255,0.72)";
+  ctx.font = `600 34px ${MONO}`;
+  ctx.fillText(`${(street.route.length / 1000).toFixed(1)} km · ${street.shops.length} places`, PAD, 284);
+  if (photo) drawPhoto(ctx, photo);
 
-  if (quest) {
-    ctx.fillStyle = "#ffcb3d";
-    ctx.font = `800 36px ${FONT}`;
-    ctx.fillText(quest.quest.source === "muse-spark-open" ? "✦ QUEST BY MUSE SPARK" : "✦ QUEST", pad, y);
-    y += 70;
-    ctx.fillStyle = "#ffffff";
-    fitFont(ctx, quest.quest.title, 800, 58, W - 2 * pad, 36);
-    ctx.fillText(ellipsize(ctx, quest.quest.title, W - 2 * pad), pad, y);
-    y += 40;
-    quest.stops.forEach((shop, i) => {
-      y += 92;
-      const line = quest.quest.stops.find((s) => s.id === shop.id)?.line ?? "";
-      ctx.fillStyle = CATEGORY_STYLE[shop.category].color;
-      ctx.beginPath();
-      ctx.arc(pad + 30, y - 14, 30, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#ffffff";
-      ctx.font = `900 34px ${FONT}`;
-      ctx.textAlign = "center";
-      ctx.fillText(String(i + 1), pad + 30, y - 2);
-      ctx.textAlign = "left";
-      ctx.font = `800 42px ${FONT}`;
-      const head = `${shop.name}`;
-      ctx.fillText(ellipsize(ctx, head, W - 2 * pad - 330), pad + 84, y);
-      ctx.fillStyle = "rgba(255,255,255,0.7)";
-      ctx.font = `600 34px ${FONT}`;
-      ctx.textAlign = "right";
-      ctx.fillText(`${distanceText(shop.s)} · ${shop.side}`, W - pad, y);
-      ctx.textAlign = "left";
-      if (line) {
-        ctx.font = `500 32px ${FONT}`;
-        ctx.fillText(ellipsize(ctx, line, W - 2 * pad - 84), pad + 84, y + 44);
-      }
-      y += 30;
-    });
-  } else {
-    ctx.fillStyle = "#ffcb3d";
-    ctx.font = `800 36px ${FONT}`;
-    ctx.fillText("NEXT UP", pad, y);
-    for (const shop of street.shops.filter((s) => s.s > 5).slice(0, 6)) {
-      y += 88;
-      ctx.fillStyle = CATEGORY_STYLE[shop.category].color;
-      ctx.beginPath();
-      ctx.roundRect(pad, y - 44, 18, 54, 9);
-      ctx.fill();
-      ctx.fillStyle = "#ffffff";
-      ctx.font = `800 42px ${FONT}`;
-      ctx.fillText(ellipsize(ctx, shop.name, W - 2 * pad - 340), pad + 40, y);
-      ctx.fillStyle = "rgba(255,255,255,0.7)";
-      ctx.font = `600 34px ${FONT}`;
-      ctx.textAlign = "right";
-      ctx.fillText(`${distanceText(shop.s)} · ${shop.side}`, W - pad, y);
-      ctx.textAlign = "left";
-    }
-  }
+  const bottom = quest ? 1160 : 1430;
+  drawStreet(ctx, input, 330, bottom);
+  if (quest) drawQuest(ctx, quest, bottom + 20);
+  else drawCounts(ctx, street, bottom + 30);
 
+  // The credits, in full.
   ctx.fillStyle = "rgba(255,255,255,0.6)";
-  ctx.font = `500 26px ${FONT}`;
-  ctx.fillText(ellipsize(ctx, street.attribution, W - 2 * pad), pad, H - 108);
-  ctx.fillText("Shops change; the map may be out of date.", pad, H - 70);
-  ctx.fillText("What If Camera · Street Ahead", pad, H - 32);
+  ctx.font = `500 24px ${SANS}`;
+  const credits = [...wrap(ctx, street.attribution, W - 2 * PAD), "Places change; the map may be out of date.", "What If Camera · Street Ahead"];
+  credits.forEach((line, i) => ctx.fillText(line, PAD, H - 40 - (credits.length - 1 - i) * 34));
   return canvas;
 }
 
-/** The street as a line with a dot per place (and the quest's stops), for a card without a photo. */
-function drawRoute(ctx: CanvasRenderingContext2D, input: ShareInput, box: { x: number; y: number; w: number; h: number }): void {
-  const route = localRoute(input.street);
-  // With a quest, only as far as its last stop and a little beyond, so the stops stand apart.
-  const limit = input.quest ? Math.min(route.length, Math.max(...input.quest.stops.map((s) => s.s)) + 400) : route.length;
-  const points = [...route.points.filter((_, i) => route.along[i] < limit), pointAt(route, limit).at];
-  const xs = points.map((p) => p.x);
-  const ys = points.map((p) => p.y);
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
-  const k = Math.min(box.w / Math.max(1, maxX - minX), box.h / Math.max(1, maxY - minY));
-  const cx = (minX + maxX) / 2;
-  const cy = (minY + maxY) / 2;
-  const px = (x: number) => box.x + box.w / 2 + (x - cx) * k;
-  const py = (y: number) => box.y + box.h / 2 - (y - cy) * k;
-  ctx.strokeStyle = "rgba(255,255,255,0.9)";
-  ctx.lineWidth = 16;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
+/** The photo in a circle at the top right. */
+function drawPhoto(ctx: CanvasRenderingContext2D, photo: HTMLCanvasElement): void {
+  const r = 105;
+  const cx = W - PAD - r;
+  const cy = 190;
+  const scale = Math.max((2 * r) / photo.width, (2 * r) / photo.height);
+  ctx.save();
   ctx.beginPath();
-  points.forEach((p, i) => (i === 0 ? ctx.moveTo(px(p.x), py(p.y)) : ctx.lineTo(px(p.x), py(p.y))));
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.drawImage(photo, cx - (photo.width * scale) / 2, cy - (photo.height * scale) / 2, photo.width * scale, photo.height * scale);
+  ctx.restore();
+  ctx.strokeStyle = LIGHT;
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
   ctx.stroke();
-  for (const shop of input.street.shops) {
-    if (shop.s > limit) break;
-    const { at, headingDeg } = pointAt(route, shop.s);
-    const h = (headingDeg * Math.PI) / 180;
-    const off = (shop.side === "right" ? 1 : -1) * (24 / k);
-    ctx.fillStyle = CATEGORY_STYLE[shop.category].color;
+}
+
+/** The whole street from above at an angle, as the show leaves it: light, dots, landmarks or stops. */
+function drawStreet(ctx: CanvasRenderingContext2D, input: ShareInput, top: number, bottom: number): void {
+  const { street, quest } = input;
+  const route = localRoute(street);
+  const line = sampleRoute(route, 10);
+  const view = { width: W, height: H, fovDeg: 50 };
+  // With a quest, only as far as its last stop and a little beyond, so the stops stand apart.
+  const limit = quest ? Math.min(route.length, Math.max(600, ...quest.stops.map((s) => s.s + 300))) : Infinity;
+  const shown = line.points.filter((_, i) => line.along[i] <= limit);
+  const step = Math.max(1, Math.floor(shown.length / 120));
+  const fitPoints = [...shown.filter((_, i) => i % step === 0), shown[shown.length - 1], { x: 0, y: 0 }];
+  const pose = overviewPose(fitPoints, view, { top: top + 190, bottom: H - bottom + 70, left: 150, right: 150 });
+  const project = projector(pose, view);
+  drawGrid(ctx, project, pose, top, bottom);
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, top, W, bottom - top);
+  ctx.clip();
+  ctx.globalCompositeOperation = "lighter";
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  const pts = line.points.map((p) => project(p));
+  for (const [alpha, width] of [
+    [0.14, 22],
+    [0.42, 8],
+    [1, 3],
+  ]) {
+    ctx.strokeStyle = rgba(quest ? QUEST_GOLD : LIGHT, alpha);
+    ctx.lineWidth = width;
     ctx.beginPath();
-    ctx.arc(px(at.x + Math.cos(h) * off), py(at.y - Math.sin(h) * off), 7, 0, Math.PI * 2);
-    ctx.fill();
+    let open = false;
+    for (const q of pts) {
+      if (!q) {
+        open = false;
+        continue;
+      }
+      if (open) ctx.lineTo(q.x, q.y);
+      else ctx.moveTo(q.x, q.y);
+      open = true;
+    }
+    ctx.stroke();
   }
-  input.quest?.stops.forEach((shop, i) => {
-    const { at } = pointAt(route, shop.s);
-    ctx.fillStyle = "#ffb300";
+  const stops = new Set(quest?.stops.map((s) => s.id));
+  for (const shop of street.shops) {
+    const q = project(dotSpot(route, shop));
+    if (!q) continue;
+    const color = stops.has(shop.id) ? QUEST_GOLD : quest ? "#6b7785" : groupOf(shop.category).color;
+    const size = stops.has(shop.id) ? 40 : 20;
+    ctx.globalAlpha = quest && !stops.has(shop.id) ? 0.5 : 1;
+    ctx.drawImage(glow(color, true), q.x - size / 2, q.y - size / 2, size, size);
+  }
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = "source-over";
+
+  // You, at the start.
+  const you = project({ x: 0, y: 0 });
+  if (you) {
     ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = 6;
+    ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.arc(px(at.x), py(at.y), 26, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.arc(you.x, you.y, 14, 0, Math.PI * 2);
     ctx.stroke();
     ctx.fillStyle = "#ffffff";
-    ctx.font = `900 30px ${FONT}`;
+    ctx.beginPath();
+    ctx.arc(you.x, you.y, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.font = `700 22px ${MONO}`;
     ctx.textAlign = "center";
-    ctx.fillText(String(i + 1), px(at.x), py(at.y) + 11);
+    ctx.fillText("YOU", you.x, you.y + 46);
+    ctx.textAlign = "left";
+  }
+
+  // Beams and names: the landmarks, or the quest's stops in order.
+  const picks = quest ? [...quest.stops].sort((a, b) => a.s - b.s) : pickLandmarks(street.shops, street.route.length, street.name);
+  const inputs: LabelInput<TagStyle>[] = [];
+  ctx.lineCap = "round";
+  for (const shop of picks) {
+    const spot = dotSpot(route, shop);
+    const base = project(spot);
+    if (!base) continue;
+    const color = quest ? QUEST_GOLD : groupOf(shop.category).color;
+    const tipY = base.y - 70;
+    const beam = ctx.createLinearGradient(0, base.y, 0, tipY);
+    beam.addColorStop(0, rgba(color, 0.95));
+    beam.addColorStop(1, rgba(color, 0));
+    ctx.strokeStyle = beam;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(base.x, base.y);
+    ctx.lineTo(base.x, tipY);
+    ctx.stroke();
+    inputs.push({
+      key: shop.id,
+      x: base.x,
+      y: tipY,
+      ahead: base.depth,
+      name: shop.name,
+      detail: `${distanceText(shop.s)} · ${kindWord(shop.kind)}`.toUpperCase(),
+      item: { color, number: quest ? quest.stops.indexOf(shop) + 1 : undefined },
+      font: 26,
+    });
+  }
+  const end = project(pointAt(route, route.length).at);
+  if (end) inputs.push({ key: "end", x: end.x, y: end.y - 10, ahead: 1e9, name: distanceText(route.length), detail: street.route.length < 4990 ? "THE STREET ENDS" : "END OF ROUTE", item: { color: "#ffffff", end: true }, font: 22 });
+  const placed = layoutLabels(inputs, tagMeasure(ctx), { left: 40, top: top + 10, right: W - 40, bottom: bottom - 10 }, 10);
+  for (const label of placed) drawTag(ctx, label);
+  ctx.restore();
+}
+
+/** Grid lines every 250 m on the ground, fading with distance. */
+function drawGrid(ctx: CanvasRenderingContext2D, project: (p: EN) => Projected | null, pose: Pose, top: number, bottom: number): void {
+  const step = 250;
+  const half = 26;
+  const x0 = (Math.round(pose.x / step) - half) * step;
+  const y0 = (Math.round(pose.y / step) - half) * step;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, top, W, bottom - top);
+  ctx.clip();
+  ctx.strokeStyle = rgba(LIGHT, 0.09);
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  for (let i = 0; i <= 2 * half; i += 1) {
+    for (let j = 0; j < 2 * half; j += 1) {
+      for (const [a, b] of [
+        [{ x: x0 + i * step, y: y0 + j * step }, { x: x0 + i * step, y: y0 + (j + 1) * step }],
+        [{ x: x0 + j * step, y: y0 + i * step }, { x: x0 + (j + 1) * step, y: y0 + i * step }],
+      ]) {
+        const p = project(a);
+        const q = project(b);
+        if (!p || !q || p.depth > pose.distance * 3) continue;
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(q.x, q.y);
+      }
+    }
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** How many places of each kind: a bar in their colours and a key. */
+function drawCounts(ctx: CanvasRenderingContext2D, street: StreetAhead, y: number): void {
+  const counts = GROUPS.map((g) => ({ g, n: street.shops.filter((s) => g.categories.includes(s.category)).length })).filter((x) => x.n > 0);
+  const total = counts.reduce((sum, x) => sum + x.n, 0);
+  let x = PAD;
+  const width = W - 2 * PAD - 4 * (counts.length - 1);
+  for (const { g, n } of counts) {
+    const w = (width * n) / Math.max(1, total);
+    ctx.fillStyle = g.color;
+    ctx.fillRect(x, y, w, 12);
+    x += w + 4;
+  }
+  counts.slice(0, 8).forEach(({ g, n }, i) => {
+    const cx = PAD + (i % 2) * ((W - 2 * PAD) / 2);
+    const cy = y + 80 + Math.floor(i / 2) * 58;
+    ctx.fillStyle = g.color;
+    ctx.beginPath();
+    ctx.arc(cx + 10, cy - 11, 10, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#ffffff";
+    ctx.font = `650 34px ${SANS}`;
+    ctx.fillText(g.label, cx + 36, cy);
+    ctx.fillStyle = "rgba(255,255,255,0.55)";
+    ctx.font = `600 30px ${MONO}`;
+    ctx.textAlign = "right";
+    ctx.fillText(String(n), cx + (W - 2 * PAD) / 2 - 40, cy);
     ctx.textAlign = "left";
   });
-  const start = route.points.find((_, i) => route.along[i] >= 0) ?? route.points[0];
-  ctx.fillStyle = "#ff6a2b";
-  ctx.strokeStyle = "#ffffff";
-  ctx.lineWidth = 6;
-  ctx.beginPath();
-  ctx.arc(px(start.x), py(start.y), 20, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
+}
+
+/** The quest: its title and stops, with the lines Muse Spark wrote (checked: no names, no numbers). */
+function drawQuest(ctx: CanvasRenderingContext2D, quest: { quest: Quest; stops: ShopAhead[] }, y: number): void {
+  ctx.fillStyle = QUEST_GOLD;
+  ctx.font = `600 30px ${MONO}`;
+  ctx.fillText(quest.quest.source === "muse-spark-open" ? "✦ QUEST BY MUSE SPARK" : "✦ QUEST", PAD, y + 40);
+  ctx.fillStyle = "#ffffff";
+  fitFont(ctx, quest.quest.title, 800, 58, W - 2 * PAD, 36);
+  ctx.fillText(ellipsize(ctx, quest.quest.title, W - 2 * PAD), PAD, y + 112);
+  let row = y + 200;
+  quest.stops.forEach((shop, i) => {
+    const line = quest.quest.stops.find((s) => s.id === shop.id)?.line ?? "";
+    ctx.fillStyle = QUEST_GOLD;
+    ctx.beginPath();
+    ctx.arc(PAD + 26, row - 14, 26, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#000000";
+    ctx.font = `800 30px ${SANS}`;
+    ctx.textAlign = "center";
+    ctx.fillText(String(i + 1), PAD + 26, row - 3);
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#ffffff";
+    ctx.font = `750 40px ${SANS}`;
+    ctx.fillText(ellipsize(ctx, shop.name, W - 2 * PAD - 360), PAD + 76, row);
+    ctx.fillStyle = "rgba(255,255,255,0.6)";
+    ctx.font = `600 30px ${MONO}`;
+    ctx.textAlign = "right";
+    ctx.fillText(`${distanceText(shop.s)} · ${shop.side}`, W - PAD, row);
+    ctx.textAlign = "left";
+    if (line) {
+      ctx.fillStyle = "rgba(255,255,255,0.75)";
+      ctx.font = `500 30px ${SANS}`;
+      ctx.fillText(ellipsize(ctx, line, W - 2 * PAD - 76), PAD + 76, row + 44);
+    }
+    row += 112;
+  });
 }
 
 /** The phone's share sheet when it takes files; otherwise the picture is saved. */

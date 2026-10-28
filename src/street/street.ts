@@ -7,7 +7,7 @@ import { localFrame, toLatLon, toLocal, type LatLon } from "../geo/enu.js";
 import { CORRIDOR_M, DEFAULT_CORRIDOR_M, shopsAlong, type ShopAhead } from "./ahead.js";
 import { shopRank } from "./overture.js";
 import type { Shop, StreetWay } from "./osm.js";
-import { followRoute, matchStreet, pointAt, type LocalWay } from "./route.js";
+import { followRoute, matchStreet, pointAt, type LocalWay, type Route } from "./route.js";
 
 export const ROUTE_LENGTH_M = 5000;
 
@@ -87,5 +87,17 @@ export function buildStreetAhead(input: StreetInput): StreetAhead | null {
     shops,
     ...(input.notes && input.notes.length > 0 ? { notes: input.notes } : {}),
     ...(cut ? { placesFound: found.length } : {}),
+  };
+}
+
+/** The street's route back in local metres around where the camera stood. */
+export function localRoute(street: StreetAhead): Route {
+  const frame = localFrame(street.origin);
+  return {
+    name: street.name,
+    points: street.route.points.map((p) => toLocal(frame, p)),
+    along: street.route.along,
+    length: street.route.length,
+    wayIds: [],
   };
 }
