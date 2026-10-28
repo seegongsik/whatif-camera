@@ -1,5 +1,17 @@
 # PROGRESS
 
+## 2026-10-28 (KST) · 2일 차 저녁 ③: PR #5 머지 뒤 실서버
+- 세 거리 모두 됨(시작점에 길 이름 힌트):
+  - 강남대로: 7 m에서 맞춤, 400곳(498곳 중), 페이스북 306·웹 268.
+  - 5번가: 7 m, 400곳(763곳 중), 페이스북 288·웹 376. Zara·COS·Skechers·Timberland·Urban Outfitters 등.
+  - 롭슨 거리: 15 m, 338곳, 페이스북 229·웹 295.
+- Overture 읽기가 Vercel에서도 됨(Node zstd 있음). 가게 카드에 Facebook·Website 버튼과 「Overture의 장소는 대부분 Meta 장소 데이터」 안내.
+- Muse Spark 퀘스트(실호출, 5번가 「Coffee and a browse」): 13.1초, Starbucks → Aaron Faber Gallery → Elias.
+- 문제 둘 → 이번 PR에서 고침:
+  - 응답 약 20초: Overpass가 매번 15초를 다 쓰고 실패(overpass-api.de 시간 초과, private.coffee 시간 없음). 예산 15초 → 6초.
+  - 화면 아래 출처가 세 줄로 칩과 겹침: 화면에서는 라이선스 이름을 빼고 두 줄 띠로(카드에는 라이선스 포함 전체 출처).
+- 데이터 오류 하나: 「기린성형외과의원」이 Overture에서 restaurant로 분류됨(원본 데이터 문제).
+
 ## 2026-10-28 (KST) · 2일 차 저녁 ②: Overture Maps 가게 (D13)
 - 민우: Overture가 「메타 생태계 안에서 연계를 공고히」 해서 어필하기 좋다 → 진행.
 - 서버가 Overture 공개 버킷에서 길과 만나는 행 그룹·열만 읽음(hyparquet, 범위 요청). 이 환경에서 실제로 읽어 확인: 강남대로 3.6초·1,332곳(페이스북 1,126), 5번가 2.9초·2,970곳.

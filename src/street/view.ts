@@ -335,7 +335,9 @@ export class StreetView {
     const close = h("button", { class: "street-close", "aria-label": "Close", onclick: options.onClose }, "×");
     const share = h("button", { class: "street-share", onclick: () => void this.share() }, "Share");
     const count = this.street.placesFound ? `${this.street.shops.length} of ${this.street.placesFound} places` : `${this.street.shops.length} places`;
-    const credit = h("div", { class: "street-credit", text: `${this.street.attribution} · ${count} within ${distanceText(this.street.route.length)}` });
+    // The licences are named on each card; the screen keeps the credits short enough for two lines.
+    const credits = this.street.attribution.replace(/ \((ODbL|CDLA-Permissive-2\.0)\)/g, "");
+    const credit = h("div", { class: "street-credit", text: `${credits} · ${count} in ${distanceText(this.street.route.length)}` });
 
     this.stage = h(
       "div",
@@ -761,7 +763,7 @@ export class StreetView {
       shop.openingHours ? h("p", { class: "muted", text: `Hours (as mapped): ${shop.openingHours}` }) : null,
       h("div", { class: "row wrap" }, ...links),
       shop.id.startsWith("ovt/") ? h("p", { class: "muted small", text: "Place from Overture Maps, whose places come largely from Meta's place data (Facebook pages)." }) : null,
-      h("p", { class: "muted small", text: `From ${this.street.source}. Shops change; the map may be out of date.` }),
+      h("p", { class: "muted small", text: `From ${this.street.source}. ${this.street.attribution}. Shops change; the map may be out of date.` }),
       h("button", { class: "ghost", onclick: () => this.card.classList.add("hidden") }, "Close"),
     ];
     this.card.replaceChildren(...parts.filter((x): x is Node => x !== null));
