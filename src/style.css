@@ -560,6 +560,28 @@ main.street {
   display: block;
 }
 
+.street-stage > canvas.street-tags {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.street-card-also {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 4px;
+}
+
+.street-card-also .chip {
+  min-height: 32px;
+  padding: 4px 12px;
+  font-size: 0.82rem;
+}
+
 .street-photo-layer {
   position: absolute;
   inset: 0;
