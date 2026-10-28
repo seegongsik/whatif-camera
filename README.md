@@ -1,14 +1,31 @@
 # What If Camera
 
-Point your phone at a building. One photo and the map turn it into a 3D model with its measurements, the camera flies around it, and then it shows what the building could become: a garden on the roof, green climbing up the walls, warm light after sunset. The result is a 9:16 video made for sharing.
+Two modes, one camera:
+
+- **Street Ahead** (the default): stand on a street, point your phone down it and take one photo. The map works out which street you are on and which way you are looking, and every shop it knows for the next 5 km appears where it stands: "Corner Noodles, 50 m ahead on the left". The nearest ones are labelled on the photo; scroll, and the view flies down the street past each shop's sign.
+- **Building what-if** (`/?mode=building`): point your phone at a building. One photo and the map turn it into a 3D model with its measurements, and then it shows what the building could become: a garden on the roof, green climbing up the walls, warm light after sunset. The result is a 9:16 video made for sharing.
 
 Entry for the Meta Global AI Developer Hackathon (October to November 2026). Operator: Minwoo Kwon (`seegongsik`). License: MIT.
 
-Heights, floors and designs are estimates and ideas, shown as such. A real roof garden needs a structural check.
+Shop data is what OpenStreetMap has mapped, shown with its source; shops change. Heights, floors and designs are estimates and ideas, shown as such. A real roof garden needs a structural check.
+
+## Street Ahead
+
+![The SYNTHETIC street: signs at their distance along the street, a kilometre arch, the small map and the category chips](docs/screenshots/2026-10-28-synthetic-street-ahead.jpg)
+
+1. **Which street**: the photo's GPS fix and compass heading go to `/api/street`. The server asks OpenStreetMap (Overpass API) for the roads within 60 m and picks the one that runs beside the camera in the direction it faces: within 45 m, within 40° of the heading, nearer and straighter first, main roads and named roads ahead of service lanes.
+2. **5 km ahead**: the route follows that road through every junction: the way that carries the same name (or road number) first, if it turns no more than 60°; otherwise the straightest one within 30°. It stops at 5 km or where the road ends.
+3. **Shops along it**: every place with a name or brand within a corridor of the route (25 to 60 m each side by road class): food, cafés, bars, fashion, groceries, beauty, health, banks, things to do, places to stay and other shops. Each gets its distance along the street and its side. A shop mapped twice (a point and its building) shows once.
+4. **On the photo**: the nearest shops in view are labelled where their signs hang, with the camera that took the photo. When the compass points within 25° of the street, the camera is taken to look along it (phone compasses are often 10 to 20° off between buildings).
+5. **Down the street**: scrolling flies a drone camera along the route. Each shop is a signboard in its category's colour with its name and its distance, standing on its side at its distance; places within 9 m share a pole (up to six signs, then "+N more"). A post every 250 m and an arch every kilometre; a small map shows where you are (tap it to jump); chips filter the kinds of places; "Next:" names the next place ahead. Tap a sign for its card: kind of place, opening hours as mapped, and its Instagram, Facebook and website links when the map has them.
+
+The street is drawn as a toy street: distances along it and the side of each shop are to scale, road widths and building sizes are not (the road is drawn narrower so both rows of signs fit a phone screen). Signs show names in category colours, not logos. Without a photo, `/?street=lat,lon,heading` (or a starting point on the home page) flies down a street from the map alone; `/?demo=street` opens the SYNTHETIC street (invented street and shops, labelled SYNTHETIC).
+
+## Building what-if (`/?mode=building`)
 
 ![Photo, 3D model with dimensions, roof garden, evening, before and after (SYNTHETIC scene)](docs/screenshots/2026-10-27-synthetic-model-dimensions.jpg)
 
-## The idea: the top view is the ruler for the front view
+### The idea: the top view is the ruler for the front view
 
 A photo alone has no scale. The map does: the building's footprint (the top view) says how wide each wall is and where its corners stand. The photo (the front view) says in which direction each corner lies and how high the roof line rises. Put together:
 
@@ -19,7 +36,7 @@ A photo alone has no scale. The map does: the building's footprint (the top view
 
 GPS and compass only seed this. They enter as priors with their own uncertainty, so a GPS fix 9 m off or a compass 11° off is corrected by the picture rather than trusted (see the synthetic check below).
 
-## What it does
+### What it does
 
 1. **Capture**: the camera with a live readout of heading, tilt and GPS accuracy. The still keeps the GPS fix, the compass heading and the gravity tilt. Without motion sensors (or for an uploaded photo) the tilt is read from the photo itself: the building's vertical edges meet at a vanishing point that fixes pitch and roll.
 2. **Which building**: OpenStreetMap footprints within 150 m on a top view. Rays swept across the view pick the building in the middle of the picture; tap another if it is wrong.
@@ -34,14 +51,14 @@ GPS and compass only seed this. They enter as priors with their own uncertainty,
    - back to the exact photo viewpoint for a before/after wipe.
 7. **Record and share**: the canvas is recorded (MP4 where the browser can, otherwise WebM) with the map attribution and estimate labels burned in.
 
-## Demo and real use: one pipeline
+### Demo and real use: one pipeline
 
 - **Live**: `Open camera` on a phone (HTTPS needed, so use the Vercel deployment).
 - **Use a photo**: location, heading and focal length are read from EXIF when present; otherwise type them. Tilt comes from the building's edges.
 - **Preset**: `Save preset` writes one JSON file with the photo, what the phone knew, the footprints as fetched, the pick, the marks and the plan. `/?preset=/presets/name.json&autoplay=1` replays it straight into the video, offline and identical every time; `&size=1080` renders 1080 × 1920 for the demo recording. See `public/presets/README.md`.
 - **Synthetic demo**: `/?demo=synthetic` (labeled SYNTHETIC everywhere). Invented buildings around a placeholder location and a photo rendered from a known camera; the app gets only what a phone would know (a GPS fix 9.2 m off, a compass 11° off, no height for the target) and the facts panel compares its answers with the truth.
 
-## Synthetic check
+### Synthetic check
 
 SYNTHETIC numbers from this repository, not real-world accuracy (that is not measured yet):
 
@@ -66,11 +83,15 @@ When the design model is configured, the photo (downscaled to 1024 px) and the m
 | --- | --- | --- |
 | Building footprints, `height`, `building:levels` | OpenStreetMap via the Overpass API: `overpass-api.de`, then `overpass.private.coffee` (8 s each) | ODbL, "© OpenStreetMap contributors" shown on screen and in videos |
 | Fallback footprints when every Overpass server is full | OpenStreetMap vector tiles from OpenFreeMap (OpenMapTiles schema, zoom 14, `building` layer); their heights are approximate and used for neighbours only | ODbL; "© OpenStreetMap contributors · OpenMapTiles · OpenFreeMap" |
+| Streets and shops for Street Ahead: roads with their nodes, `name`, `ref`; places with `shop`, `amenity`, `tourism` or `leisure` and their `name`, `brand`, `opening_hours`, `cuisine`, `website`, `contact:instagram`, `contact:facebook` | OpenStreetMap via the Overpass API (same servers as above; 32 s for all calls in all) | ODbL, "© OpenStreetMap contributors" on screen |
+| Fallback streets and shops | OpenFreeMap vector tiles (zoom 14, `transportation_name` and `poi` layers): named roads and places with their kind only, no hours or links | ODbL; "© OpenStreetMap contributors · OpenMapTiles · OpenFreeMap" |
 | Sun position | Astronomical Almanac low-precision formulas | computed |
 
 ## Assumptions
 
-Listed in the facts panel whenever they are used: the roof stands at the same height at both outer edges (flat roof); 3.0 m per floor when OpenStreetMap has no level count; 1.5 m camera height when the foot of the walls is hidden; 67° field of view across the long side for a live capture (a typical 26 mm equivalent main camera; EXIF focal length for uploads); 9 m for neighbouring buildings without a mapped height (context only); compass uncertainty 20° when the phone reports none. Sizes of the decorations are design choices, not measurements.
+Street Ahead: the photo is taken at eye height (1.5 m); shop signs hang 4 m above the pavement, on the shop's side of the street and at most 22 m from the street's centre line; a compass within 25° of the street means the camera looks along it; the field of view is the same as below.
+
+Building what-if, listed in the facts panel whenever they are used: the roof stands at the same height at both outer edges (flat roof); 3.0 m per floor when OpenStreetMap has no level count; 1.5 m camera height when the foot of the walls is hidden; 67° field of view across the long side for a live capture (a typical 26 mm equivalent main camera; EXIF focal length for uploads); 9 m for neighbouring buildings without a mapped height (context only); compass uncertainty 20° when the phone reports none. Sizes of the decorations are design choices, not measurements.
 
 ## Run locally
 
@@ -80,7 +101,7 @@ npm test          # geometry, registration, height, tilt, EXIF, Overpass parsing
 npm run lint
 npm run build
 npm run check:api # transpiles the API functions file by file and calls them without keys
-npm run dev       # http://localhost:5173/?demo=synthetic
+npm run dev       # http://localhost:5173/?demo=street (SYNTHETIC street), ?demo=synthetic&mode=building
 ```
 
 ## Secrets and settings
@@ -93,7 +114,7 @@ Server side only; `/api/status` returns booleans.
 | `MODEL_API_KEY` (or `META_API_KEY`) | Meta Model API (SAM 3.1), not called yet |
 | `OVERPASS_URLS` (or `OVERPASS_URL`) | Overpass API instances to try first, comma-separated, HTTPS only |
 | `FOOTPRINT_TILES` | `off` disables the vector-tile fallback |
-| `DAILY_FOOTPRINT_CALL_CAP`, `DAILY_SPARK_CALL_CAP` | per-instance daily caps (defaults 2000 and 300) |
+| `DAILY_FOOTPRINT_CALL_CAP`, `DAILY_SPARK_CALL_CAP`, `DAILY_STREET_CALL_CAP` | per-instance daily caps (defaults 2000, 300 and 2000) |
 
 ## Open source used
 
@@ -106,6 +127,16 @@ Server side only; `/api/status` returns booleans.
 All application code was written in this repository during the hackathon (from 2026-10-27 02:00 KST).
 
 ## Limits
+
+Street Ahead:
+
+- Only what OpenStreetMap has mapped, as it was mapped: shop coverage, names and opening hours vary by city, and shops close and open. The card says so and names the source.
+- The street is matched from GPS and compass alone. On a corner or under tall buildings the GPS fix can sit on the cross street; the app shows which street it took (its name at the top) and the photo labels show whether it fits.
+- A street that changes name keeps going only if the next way runs straight on; a dual carriageway mapped as two one-way roads is followed along the carriageway beside the camera.
+- In the tile fallback, roads without a name cannot be matched and places carry only their kind: no hours, links or brands.
+- Not checked on real streets yet: the build environment cannot reach the map servers (`PROGRESS.md`).
+
+Building what-if:
 
 - Flat roofs and simple outlines. A pitched roof, a setback or a rooftop structure breaks the same-height assumption; marks must sit on the building's outermost vertical edges.
 - Buildings joined to their neighbours: the outer edge seen in the photo may not be the footprint's outermost corner.

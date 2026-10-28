@@ -1,6 +1,6 @@
 # Working notes for coding agents
 
-What If Camera: point a phone at a building; one photo plus the map becomes a 3D model with its measurements, then a short video of what it could become (roof garden, green walls, evening light). Entry for the Meta Global AI Developer Hackathon. Operator: Minwoo Kwon. Read `README.md` for the product, `DECISIONS.md` for why things are the way they are, and the top of `PROGRESS.md` for where work stands.
+What If Camera. Default mode, Street Ahead: stand on a street and take one photo along it; GPS, compass and the map find the street and the direction, and every shop the map has for the next 5 km appears at its distance and side; scrolling flies down the street. Second mode (`?mode=building`): point a phone at a building; one photo plus the map becomes a 3D model with its measurements, then a short video of what it could become (roof garden, green walls, evening light). Entry for the Meta Global AI Developer Hackathon. Operator: Minwoo Kwon. Read `README.md` for the product, `DECISIONS.md` for why things are the way they are, and the top of `PROGRESS.md` for where work stands.
 
 ## Rules
 
@@ -17,7 +17,7 @@ What If Camera: point a phone at a building; one photo plus the map becomes a 3D
 
 ## Commands
 
-`npm test` · `npm run lint` · `npm run build` (runs `tsc --noEmit` first) · `npm run check:api` (per-file transpile of the Vercel functions) · `npm run dev` (`?demo=synthetic`, `?preset=/presets/x.json&autoplay=1`, `&size=1080`, `?fov=`).
+`npm test` · `npm run lint` · `npm run build` (runs `tsc --noEmit` first) · `npm run check:api` (per-file transpile of the Vercel functions) · `npm run dev` (`?demo=street`, `?street=lat,lon,heading`, `?mode=building`, `?demo=synthetic`, `?preset=/presets/x.json&autoplay=1`, `&size=1080`, `?fov=`).
 
 In the Claude Code cloud environment, start the dev server with `NODE_USE_ENV_PROXY=1` so the API routes' own `fetch` goes through the session proxy; each outside host (Overpass, OpenFreeMap, Baseten) must be on the environment's allowed domains. The deployment is https://whatif-camera.vercel.app.
 
@@ -30,4 +30,5 @@ In the Claude Code cloud environment, start the dev server with `NODE_USE_ENV_PR
 - `src/scene/` three.js: photo projection (`projection.ts`), the world, dimension lines, decorations, the shot list (`timeline.ts`), the player and recorder (`player.ts`).
 - `src/synthetic/` the SYNTHETIC scene with a rendered photo and known truth.
 - `src/capture/`, `src/preset/`, `src/ui/` phone sensors and camera, EXIF, presets, the page.
-- `server/` footprint sources (Overpass servers, then vector tiles via `src/data/mvt.ts`), Baseten client, design prompt, routes, call caps. `api/` holds one Vercel function per route.
+- `src/street/` Street Ahead: OSM streets and shops (`osm.ts`, `overpass.ts`, `tiles.ts`), matching the street and following it 5 km (`route.ts`), shops along it (`ahead.ts`, `street.ts`), labels on the photo (`photo-labels.ts`), the 3D street and its page (`view.ts`, `signs.ts`), the SYNTHETIC street (`synthetic.ts`).
+- `server/` footprint sources (Overpass servers, then vector tiles via `src/data/mvt.ts`), street lookup (`street-sources.ts`), Baseten client, design prompt, routes, call caps. `api/` holds one Vercel function per route.

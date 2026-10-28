@@ -9,6 +9,7 @@ import { keyPresence, type EnvMap } from "./keys.js";
 import { takeCall } from "./limits.js";
 import { lookupFootprints, UpstreamError } from "./footprint-sources.js";
 import { SparkError } from "./spark.js";
+import { lookupStreet } from "./street-sources.js";
 
 /** Large enough for a 1280 px JPEG, well under the 4.5 MB function body limit. */
 export const MAX_IMAGE_DATA_URL_CHARS = 2_500_000;
@@ -45,6 +46,24 @@ export async function handleFootprints(request: Request, deps: Deps = {}): Promi
     if (error instanceof UpstreamError) return json({ error: error.message }, error.status);
     const message = error instanceof Error ? error.message : String(error);
     return json({ error: `footprint lookup failed: ${message}` }, 502);
+  }
+}
+
+export async function handleStreet(request: Request, deps: Deps = {}): Promise<Response> {
+  if (request.method !== "GET") return json({ error: "use GET" }, 405);
+  const url = new URL(request.url);
+  const [lat, lon, heading] = ["lat", "lon", "heading"].map((k) => (url.searchParams.has(k) ? Number(url.searchParams.get(k)) : NaN));
+  if (![lat, lon, heading].every(Number.isFinite)) return json({ error: "lat, lon and heading are required numbers" }, 400);
+  if (Math.abs(lat) > 85 || Math.abs(lon) > 180) return json({ error: "lat within ±85, lon within ±180" }, 400);
+  if (!takeCall("street", (deps.now ?? Date.now)(), deps.env ?? process.env)) {
+    return json({ error: "daily street lookups for this server instance are used up" }, 429);
+  }
+  try {
+    const street = await lookupStreet({ lat, lon }, ((heading % 360) + 360) % 360, deps);
+    return json(street, 200, { "Cache-Control": "public, max-age=900, s-maxage=3600" });
+  } catch (error) {
+    if (error instanceof UpstreamError) return json({ error: error.message }, error.status);
+    return json({ error: `street lookup failed: ${error instanceof Error ? error.message : String(error)}` }, 502);
   }
 }
 
