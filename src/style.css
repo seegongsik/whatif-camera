@@ -560,6 +560,28 @@ main.street {
   display: block;
 }
 
+.street-stage > canvas.street-tags {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.street-card-also {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0 4px;
+}
+
+.street-card-also .chip {
+  min-height: 32px;
+  padding: 4px 12px;
+  font-size: 0.82rem;
+}
+
 .street-photo-layer {
   position: absolute;
   inset: 0;
@@ -653,7 +675,8 @@ main.street {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: calc(max(8px, env(safe-area-inset-bottom)) + 18px);
+  /* Above the two lines of credits. */
+  bottom: calc(max(4px, env(safe-area-inset-bottom)) + 36px);
   display: grid;
   gap: 8px;
   padding: 0 12px;
@@ -694,13 +717,17 @@ main.street {
 
 .street-credit {
   position: absolute;
-  left: 12px;
-  right: 12px;
-  bottom: max(2px, env(safe-area-inset-bottom));
-  font-size: 0.68rem;
-  color: rgba(0, 0, 0, 0.7);
-  text-align: right;
-  text-shadow: 0 0 4px rgba(255, 255, 255, 0.95);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: calc(2 * 1.3 * 0.64rem + 6px + env(safe-area-inset-bottom));
+  overflow: hidden;
+  padding: 3px 12px max(3px, env(safe-area-inset-bottom));
+  background: rgba(255, 255, 255, 0.82);
+  font-size: 0.64rem;
+  line-height: 1.3;
+  color: rgba(0, 0, 0, 0.75);
+  text-align: center;
   pointer-events: none;
 }
 

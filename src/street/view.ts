@@ -1,9 +1,10 @@
 /**
  * The street view. At the top of the page: the photo, with the nearest shops
  * labelled where they stand in it. Scrolling down flies along the street:
- * every shop the map has stands at its real distance and side, as a stack of
- * signboards on a toy street; arches mark each kilometre and a small map
- * shows where you are. Tapping a sign opens its card.
+ * every shop the map has stands at its real distance and side as a coloured
+ * pin on a toy street, and the nearest ones carry name tags laid out on the
+ * screen like a map's labels (never on top of one another). Arches mark each
+ * kilometre and a small map shows where you are. Tapping a tag opens its card.
  */
 import {
   BoxGeometry,
@@ -30,6 +31,7 @@ import {
   RepeatWrapping,
   SRGBColorSpace,
   Scene,
+  SphereGeometry,
   Vector2,
   Vector3,
   WebGLRenderer,
@@ -48,8 +50,10 @@ import type { Quest } from "./quest.js";
 import { QuestSheet } from "./quest-ui.js";
 import { drawShareCard, shareCard } from "./share-card.js";
 import { pointAt, type Route } from "./route.js";
-import { badgeTexture, CATEGORY_ORDER, CATEGORY_STYLE, distanceText, signTexture, textTexture } from "./signs.js";
+import { shopRank } from "./overture.js";
+import { badgeTexture, CATEGORY_ORDER, CATEGORY_STYLE, distanceText, textTexture } from "./signs.js";
 import { spotPlaces, type Spotted } from "./spotted.js";
+import { LABEL_AHEAD_M, LABEL_PAD_X, LABEL_PAD_Y, layoutLabels, type LabelInput, type PlacedLabel } from "./street-labels.js";
 import type { StreetAhead } from "./street.js";
 
 /**
@@ -69,10 +73,8 @@ const ROAD_WIDTH_M: Record<string, number> = {
   service: 5,
 };
 const SIDEWALK_M = 3;
-const SIGN_W = 13;
-const SIGN_H = (SIGN_W * 160) / 512;
-/** Vertical spacing of stacked signs; the drone looks down about 20°, so a little more than a sign's height. */
-const SIGN_STEP = SIGN_H / Math.cos((20 * Math.PI) / 180) + 0.7;
+/** Height of a place's pin over the pavement; its name tag hangs on the screen above it. */
+const PIN_M = 9;
 const FOV_DEG = 62;
 /** Shops within this many metres of each other on one side share a building. */
 const CLUSTER_M = 9;
@@ -86,6 +88,9 @@ const INTRO_SHARE = 0.05;
 const SCREENS = 28;
 
 type Cluster = { key: string; side: "left" | "right"; s: number; shops: ShopAhead[]; extra: number };
+
+/** What a name tag stands for: the place it names, the others at the same pin, and how it is marked. */
+type TagItem = { cluster: Cluster; shop: ShopAhead; others: ShopAhead[]; quest: boolean; next: boolean };
 
 type ActiveQuest = { quest: Quest; stops: ShopAhead[]; reached: Set<string>; group: Group; markers: Map<string, { beam: Mesh; badge: Mesh }> };
 
@@ -276,6 +281,17 @@ export class StreetView {
   private toastTimer = 0;
   private disposed = false;
   private readonly disposables: { dispose(): void }[] = [];
+  /** Name tags over the 3D street, drawn every frame, and where they were drawn (for tapping). */
+  private readonly tagCanvas: HTMLCanvasElement;
+  private tags: PlacedLabel<TagItem>[] = [];
+  /** What floats over the street where tags must not go: the small map, the quest bar. */
+  private blocked: { x: number; y: number; w: number; h: number }[] = [];
+  private readonly tagBorn = new Map<string, number>();
+  /** Geometry and materials every pin shares. */
+  private readonly pinGeometry = new SphereGeometry(1.1, 18, 12);
+  private readonly poleGeometry = new BoxGeometry(0.28, PIN_M, 0.28);
+  private readonly poleMaterial = new MeshStandardMaterial({ color: "#5f6670", roughness: 0.6 });
+  private readonly pinMaterials = new Map<ShopCategory, MeshStandardMaterial>();
   private s = 0;
   private sTarget = 0;
   private intro = 0;
@@ -304,6 +320,7 @@ export class StreetView {
       this.photoLayer = h("div", { class: "street-photo-layer" }, options.photo, this.labelCanvas, this.signNote);
     }
 
+    this.tagCanvas = h("canvas", { class: "street-tags" });
     this.readout = h("div", { class: "street-readout" });
     this.next = h("div", { class: "street-next" });
     this.minimap = h("canvas", { class: "street-minimap", width: 300, height: 300 });
@@ -335,12 +352,15 @@ export class StreetView {
     const close = h("button", { class: "street-close", "aria-label": "Close", onclick: options.onClose }, "×");
     const share = h("button", { class: "street-share", onclick: () => void this.share() }, "Share");
     const count = this.street.placesFound ? `${this.street.shops.length} of ${this.street.placesFound} places` : `${this.street.shops.length} places`;
-    const credit = h("div", { class: "street-credit", text: `${this.street.attribution} · ${count} within ${distanceText(this.street.route.length)}` });
+    // The licences are named on each card; the screen keeps the credits short enough for two lines.
+    const credits = this.street.attribution.replace(/ \((ODbL|CDLA-Permissive-2\.0)\)/g, "");
+    const credit = h("div", { class: "street-credit", text: `${credits} · ${count} in ${distanceText(this.street.route.length)}` });
 
     this.stage = h(
       "div",
       { class: "street-stage" },
       this.renderer.domElement,
+      this.tagCanvas,
       this.photoLayer,
       h("div", { class: "street-top" }, title, h("div", { class: "street-top-buttons" }, share, close)),
       this.readout,
@@ -369,7 +389,7 @@ export class StreetView {
     this.buildStreet();
 
     this.scroller.addEventListener("scroll", () => this.onScroll(), { passive: true });
-    this.renderer.domElement.addEventListener("click", (e) => this.pick(e));
+    this.tagCanvas.addEventListener("click", (e) => this.pickTag(e));
     this.labelCanvas?.addEventListener("click", (e) => this.pickLabel(e));
     this.minimap.addEventListener("click", (e) => this.jump(e));
     window.addEventListener("resize", this.onResize);
@@ -396,6 +416,10 @@ export class StreetView {
     this.endQuest();
     window.removeEventListener("resize", this.onResize);
     for (const key of [...this.active.keys()]) this.drop(key);
+    this.pinGeometry.dispose();
+    this.poleGeometry.dispose();
+    this.poleMaterial.dispose();
+    for (const m of this.pinMaterials.values()) m.dispose();
     this.scene.traverse((o) => {
       const mesh = o as Mesh;
       mesh.geometry?.dispose();
@@ -420,11 +444,25 @@ export class StreetView {
     this.width = Math.max(1, Math.round(rect.width));
     this.height = Math.max(1, Math.round(rect.height));
     this.renderer.setSize(this.width, this.height, false);
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    this.tagCanvas.width = this.width * dpr;
+    this.tagCanvas.height = this.height * dpr;
     this.camera.aspect = this.width / this.height;
     this.camera.updateProjectionMatrix();
     this.drawLabels();
     this.drawMinimap();
+    this.measureBlocked();
   };
+
+  private measureBlocked(): void {
+    const stage = this.stage.getBoundingClientRect();
+    this.blocked = [this.minimap, this.questBar]
+      .filter((el) => !el.classList.contains("hidden"))
+      .map((el) => {
+        const r = el.getBoundingClientRect();
+        return { x: r.left - stage.left, y: r.top - stage.top, w: r.width, h: r.height };
+      });
+  }
 
   private onScroll(): void {
     const max = Math.max(1, this.scroller.scrollHeight - this.scroller.clientHeight);
@@ -540,12 +578,19 @@ export class StreetView {
     return { x: at.x + Math.cos(h0) * off, y: at.y - Math.sin(h0) * off };
   }
 
-  /** Height of the top of a shop's sign in its stack. */
-  private signTop(shop: ShopAhead): number {
-    const c = this.clusters.find((x) => x.shops.some((y) => y.id === shop.id));
-    const n = c ? c.shops.length : 1;
-    const i = c ? c.shops.findIndex((y) => y.id === shop.id) : 0;
-    return 6 + Math.min(6, n) * 1.2 + 1.5 + i * SIGN_STEP + SIGN_H;
+  private pinMaterial(category: ShopCategory): MeshStandardMaterial {
+    let m = this.pinMaterials.get(category);
+    if (!m) {
+      const color = new Color(CATEGORY_STYLE[category].color);
+      m = new MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.35, roughness: 0.4 });
+      this.pinMaterials.set(category, m);
+    }
+    return m;
+  }
+
+  /** The place a pin's tag names: the surest of the places sharing it. */
+  private primary(shops: ShopAhead[]): ShopAhead {
+    return shops.reduce((best, shop) => (shopRank(shop) > shopRank(best) ? shop : best));
   }
 
   private build(c: Cluster): Group {
@@ -565,26 +610,16 @@ export class StreetView {
     block.position.copy(toWorldAt(centre, blockHeight / 2));
     block.rotation.y = (-headingDeg * Math.PI) / 180;
     group.add(block);
-    // Signs hang over the pavement in front of the building, on a pole down to the shop's door.
+    // A pin over the pavement in front of the building, in the colour of the place its tag names.
     const spot = this.signSpot(c.s, c.side);
-    const bottom = blockHeight + 1.5;
-    const pole = new Mesh(new BoxGeometry(0.35, bottom, 0.35), new MeshStandardMaterial({ color: "#5f6670", roughness: 0.6 }));
-    pole.position.copy(toWorldAt(spot, bottom / 2));
-    group.add(pole);
-    shops.forEach((shop, i) => {
-      const texture = signTexture(shop.name, shop.category, distanceText(shop.s), this.quest?.stops.some((q) => q.id === shop.id) ? QUEST_GOLD : undefined);
-      const plane = new Mesh(new PlaneGeometry(SIGN_W, SIGN_H), new MeshBasicMaterial({ map: texture, transparent: true }));
-      plane.position.copy(toWorldAt(spot, bottom + SIGN_H / 2 + i * SIGN_STEP));
-      plane.userData = { shop, billboard: true };
-      group.add(plane);
-    });
-    if (c.extra > 0 && shops.length === c.shops.length) {
-      const more = textTexture(`+${c.extra} more`, "#ffffff", "#1b1b1b");
-      const plate = new Mesh(new PlaneGeometry(4.2, 1.6), new MeshBasicMaterial({ map: more, transparent: true }));
-      plate.position.copy(toWorldAt(spot, bottom + SIGN_H + 1.1 + (shops.length - 1) * SIGN_STEP));
-      plate.userData = { billboard: true };
-      group.add(plate);
-    }
+    const pole = new Mesh(this.poleGeometry, this.poleMaterial);
+    pole.position.copy(toWorldAt(spot, PIN_M / 2));
+    pole.userData = { shared: true };
+    const pin = new Mesh(this.pinGeometry, this.pinMaterial(this.primary(shops).category));
+    pin.position.copy(toWorldAt(spot, PIN_M));
+    pin.userData = { shared: true, cluster: c };
+    group.add(pole, pin);
+    group.userData = { cluster: c, anchor: toWorldAt(spot, PIN_M + 1.2) };
     return group;
   }
 
@@ -593,7 +628,7 @@ export class StreetView {
     if (!group) return;
     group.traverse((o) => {
       const mesh = o as Mesh;
-      if (!mesh.isMesh) return;
+      if (!mesh.isMesh || mesh.userData.shared) return;
       mesh.geometry.dispose();
       const m = mesh.material as MeshBasicMaterial;
       m.map?.dispose();
@@ -661,6 +696,7 @@ export class StreetView {
     }
     this.renderer.render(this.scene, this.camera);
     this.updateHud();
+    this.drawTags();
   }
 
   /** Vertical field of view of the part of the photo the screen shows (it is cropped to fill). */
@@ -678,6 +714,110 @@ export class StreetView {
     this.next.textContent = upcoming ? `Next: ${upcoming.name} · ${CATEGORY_STYLE[upcoming.category].label.toLowerCase()} · ${distanceText(upcoming.s - s)} on the ${upcoming.side}` : "No more places ahead on this street";
     this.updateQuest();
     this.drawMinimapMarker();
+  }
+
+  /** Name tags for the pins ahead, laid out on the screen so none covers another. */
+  private drawTags(): void {
+    const ctx = this.tagCanvas.getContext("2d")!;
+    const dpr = this.tagCanvas.width / Math.max(1, this.width);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, this.width, this.height);
+    this.tags = [];
+    // While the photo is still in front, its own labels speak for the places.
+    const alpha = this.photoLayer ? smooth((this.intro - 0.55) / 0.35) : 1;
+    if (alpha <= 0.01) return;
+    const here = Math.max(0, this.s);
+    const next = this.street.shops.find((x) => x.s > here + 5 && this.filter.has(x.category));
+    const questIds = new Set(this.quest?.stops.map((q) => q.id) ?? []);
+    const inputs: LabelInput<TagItem>[] = [];
+    const v = new Vector3();
+    for (const group of this.active.values()) {
+      const c = group.userData.cluster as Cluster | undefined;
+      if (!c) continue;
+      const ahead = c.s - here;
+      if (ahead < -5 || ahead > LABEL_AHEAD_M) continue;
+      const shops = this.visibleShops(c);
+      if (shops.length === 0) continue;
+      v.copy(group.userData.anchor as Vector3).project(this.camera);
+      if (v.z > 1) continue;
+      const shop = this.primary(shops);
+      const more = shops.length - 1 + (shops.length === c.shops.length ? c.extra : 0);
+      inputs.push({
+        key: c.key,
+        x: ((v.x + 1) / 2) * this.width,
+        y: ((1 - v.y) / 2) * this.height,
+        ahead,
+        name: shop.name,
+        detail: `${distanceText(ahead)}${more > 0 ? ` · +${more} here` : ""}`,
+        item: { cluster: c, shop, others: shops.filter((s) => s !== shop), quest: shops.some((s) => questIds.has(s.id)), next: next !== undefined && shops.includes(next) },
+      });
+    }
+    const font = (size: number, bold: boolean) => `${bold ? 700 : 500} ${size}px "Inter", system-ui, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif`;
+    const measure = (text: string, size: number, bold: boolean) => {
+      ctx.font = font(size, bold);
+      return ctx.measureText(text).width;
+    };
+    // Clear of the title bar, the readout and the small map above, and of the bars at the bottom.
+    this.tags = layoutLabels(inputs, measure, { left: 6, top: 104, right: this.width - 6, bottom: this.height - 152, blocked: this.blocked });
+    const now = performance.now();
+    const shown = new Set(this.tags.map((t) => t.key));
+    for (const key of [...this.tagBorn.keys()]) if (!shown.has(key)) this.tagBorn.delete(key);
+    ctx.globalAlpha = alpha;
+    ctx.textBaseline = "alphabetic";
+    // Farthest first, so nearer tags and their pointers sit on top.
+    for (const tag of [...this.tags].reverse()) {
+      if (!this.tagBorn.has(tag.key)) this.tagBorn.set(tag.key, now);
+      // A tag pops in when it first appears.
+      const t = Math.min(1, (now - this.tagBorn.get(tag.key)!) / 220);
+      const pop = 1 + 2.2 * Math.pow(t - 1, 3) + 1.2 * Math.pow(t - 1, 2);
+      const { box, font: size, item } = tag;
+      ctx.save();
+      ctx.translate(tag.x, tag.y);
+      ctx.scale(pop, pop);
+      ctx.translate(-tag.x, -tag.y);
+      const cx = Math.min(box.x + box.w - 12, Math.max(box.x + 12, tag.x));
+      ctx.strokeStyle = "rgba(255,255,255,0.95)";
+      ctx.fillStyle = "rgba(255,255,255,0.97)";
+      if (tag.lifted) {
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(tag.x, tag.y);
+        ctx.lineTo(cx, box.y + box.h);
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(cx - 6, box.y + box.h - 1);
+        ctx.lineTo(tag.x, tag.y - 1);
+        ctx.lineTo(cx + 6, box.y + box.h - 1);
+        ctx.fill();
+      }
+      ctx.shadowColor = "rgba(0,0,0,0.28)";
+      ctx.shadowBlur = 8;
+      ctx.shadowOffsetY = 2;
+      ctx.beginPath();
+      ctx.roundRect(box.x, box.y, box.w, box.h, 10);
+      ctx.fill();
+      ctx.shadowColor = "transparent";
+      if (item.quest || item.next) {
+        ctx.lineWidth = item.quest ? 3 : 2;
+        ctx.strokeStyle = item.quest ? QUEST_GOLD : "#1b1b1b";
+        ctx.stroke();
+      }
+      const dot = size * 0.7;
+      ctx.fillStyle = CATEGORY_STYLE[item.shop.category].color;
+      ctx.beginPath();
+      ctx.arc(box.x + LABEL_PAD_X + dot / 2, box.y + LABEL_PAD_Y + size * 0.62, dot / 2, 0, Math.PI * 2);
+      ctx.fill();
+      const tx = box.x + LABEL_PAD_X + dot + 6;
+      ctx.fillStyle = "#1b1b1b";
+      ctx.font = font(size, true);
+      ctx.fillText(`${item.quest ? "★ " : ""}${tag.name}`, tx, box.y + LABEL_PAD_Y + size * 0.98);
+      ctx.fillStyle = "#6b6760";
+      ctx.font = font(Math.round(size * 0.8), false);
+      ctx.fillText(tag.detail, tx, box.y + LABEL_PAD_Y + size * 1.2 + size * 0.8);
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
   }
 
   private drawLabels(): void {
@@ -736,17 +876,29 @@ export class StreetView {
     if (hit) this.showCard(hit.shop);
   }
 
-  private pick(e: MouseEvent): void {
-    const rect = this.renderer.domElement.getBoundingClientRect();
-    const ndc = new Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+  /** A tap on a name tag opens its card; elsewhere, a tap on a pin does. */
+  private pickTag(e: MouseEvent): void {
+    const rect = this.tagCanvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const hit = this.tags.find((t) => x >= t.box.x && x <= t.box.x + t.box.w && y >= t.box.y && y <= t.box.y + t.box.h);
+    if (hit) {
+      this.showCard(hit.item.shop, hit.item.others);
+      return;
+    }
+    const ndc = new Vector2((x / rect.width) * 2 - 1, -(y / rect.height) * 2 + 1);
     const ray = new Raycaster();
     ray.setFromCamera(ndc, this.camera);
-    const targets = [...this.active.values()].flatMap((g) => g.children.filter((c) => c.userData.shop));
-    const hit = ray.intersectObjects(targets, false)[0];
-    if (hit) this.showCard(hit.object.userData.shop as ShopAhead);
+    const pins = [...this.active.values()].flatMap((g) => g.children.filter((c) => c.userData.cluster));
+    const pin = ray.intersectObjects(pins, false)[0];
+    if (!pin) return;
+    const shops = this.visibleShops(pin.object.userData.cluster as Cluster);
+    if (shops.length === 0) return;
+    const best = this.primary(shops);
+    this.showCard(best, shops.filter((s) => s !== best));
   }
 
-  private showCard(shop: ShopAhead): void {
+  private showCard(shop: ShopAhead, others: ShopAhead[] = []): void {
     const style = CATEGORY_STYLE[shop.category];
     const links = [
       shop.instagram ? h("a", { class: "button", href: shop.instagram, target: "_blank", rel: "noopener" }, "Instagram") : null,
@@ -760,8 +912,16 @@ export class StreetView {
       shop.cuisine ? h("p", { class: "muted", text: `Cuisine: ${shop.cuisine.replace(/;/g, ", ").replace(/_/g, " ")}` }) : null,
       shop.openingHours ? h("p", { class: "muted", text: `Hours (as mapped): ${shop.openingHours}` }) : null,
       h("div", { class: "row wrap" }, ...links),
+      others.length > 0
+        ? h(
+            "div",
+            { class: "street-card-also" },
+            h("span", { class: "muted small", text: "Also here:" }),
+            ...others.map((o) => h("button", { class: "chip", onclick: () => this.showCard(o, [shop, ...others.filter((x) => x !== o)]) }, o.name)),
+          )
+        : null,
       shop.id.startsWith("ovt/") ? h("p", { class: "muted small", text: "Place from Overture Maps, whose places come largely from Meta's place data (Facebook pages)." }) : null,
-      h("p", { class: "muted small", text: `From ${this.street.source}. Shops change; the map may be out of date.` }),
+      h("p", { class: "muted small", text: `From ${this.street.source}. ${this.street.attribution}. Shops change; the map may be out of date.` }),
       h("button", { class: "ghost", onclick: () => this.card.classList.add("hidden") }, "Close"),
     ];
     this.card.replaceChildren(...parts.filter((x): x is Node => x !== null));
@@ -886,18 +1046,17 @@ export class StreetView {
       const beam = new Mesh(new CylinderGeometry(1.3, 1.3, 90, 20, 1, true), new MeshBasicMaterial({ color: QUEST_GOLD, transparent: true, opacity: 0.32, depthWrite: false, side: DoubleSide, fog: false }));
       beam.position.copy(toWorldAt(spot, 45));
       const badge = new Mesh(new PlaneGeometry(5.5, 5.5), new MeshBasicMaterial({ map: badgeTexture(String(i + 1), QUEST_GOLD), transparent: true, fog: false }));
-      badge.position.copy(toWorldAt(spot, this.signTop(shop) + 4));
+      badge.position.copy(toWorldAt(spot, PIN_M + 6));
       badge.userData = { billboard: true };
       group.add(beam, badge);
       markers.set(shop.id, { beam, badge });
     });
     this.scene.add(group);
     this.quest = { quest, stops, reached: new Set(), group, markers };
-    // Rebuild the signs so the stops' signs carry the quest's ring.
-    this.rebuildAll();
     this.drawMinimap();
     this.questBar.classList.remove("hidden");
     this.updateQuest();
+    this.measureBlocked();
     this.showToast(`✦ ${quest.title}: ${stops.length} stops. Scroll to walk there.`);
   }
 
@@ -916,8 +1075,8 @@ export class StreetView {
     this.scene.remove(active.group);
     this.questBar.classList.add("hidden");
     if (!this.disposed) {
-      this.rebuildAll();
       this.drawMinimap();
+      this.measureBlocked();
     }
   }
 

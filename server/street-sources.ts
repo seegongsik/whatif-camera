@@ -24,8 +24,13 @@ import type { EnvMap } from "./keys.js";
 
 const CACHE_MS = 15 * 60 * 1000;
 const OVERPASS_TIMEOUT_MS = 20_000;
-/** Overpass gets this long in all, server after server, before the tiles (loaded meanwhile) take over: Vercel stops the function at 60 s. */
-const OVERPASS_BUDGET_MS = 15_000;
+/**
+ * Overpass gets this long in all, server after server, before the tiles
+ * (loaded meanwhile) take over. A healthy server answers both street queries
+ * in a few seconds; from the deployment on 2026-10-28 it never answered, and
+ * a longer wait only made every lookup slower.
+ */
+const OVERPASS_BUDGET_MS = 6_000;
 /** The most places one street keeps: a 5 km street in Seoul has well over a thousand, more signs than a phone should draw. */
 export const MAX_PLACES = 400;
 export const OVERTURE_ATTRIBUTION = "Places © Overture Maps Foundation (CDLA-Permissive-2.0)";
