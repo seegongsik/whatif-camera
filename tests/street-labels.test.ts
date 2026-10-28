@@ -45,4 +45,11 @@ describe("name tags on the street", () => {
     const [edge] = layoutLabels([tag("edge", 384, 400, 30, "A long name at the edge")], measure, area);
     expect(edge.box.x + edge.box.w).toBeLessThanOrEqual(384);
   });
+
+  it("keep their padding in proportion when they bring their own font", () => {
+    const small = layoutLabels([{ ...tag("a", 200, 400, 0, "Place"), font: 13 }], measure, area)[0];
+    const large = layoutLabels([{ ...tag("b", 200, 400, 0, "Place"), font: 26 }], measure, area)[0];
+    expect(large.box.h).toBeCloseTo(small.box.h * 2, 6);
+    expect(large.box.w).toBeCloseTo(small.box.w * 2, 6);
+  });
 });

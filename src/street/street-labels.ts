@@ -1,8 +1,8 @@
 /**
- * Name tags for the street view, laid out on the screen the way a map lays
+ * Name tags for the street show, laid out on the screen the way a map lays
  * out its labels: nearest places first, larger when near, never on top of
  * one another, never under the page's bars. A tag that would cover a nearer
- * one is lifted once on a leader line, or left out; the 3D pins still show
+ * one is lifted once on a leader line, or left out; the dots still show
  * where every place is.
  */
 export const MAX_LABELS = 14;
@@ -17,9 +17,11 @@ export type LabelInput<T = unknown> = {
   /** Metres ahead along the street. */
   ahead: number;
   name: string;
-  /** The second line: distance, and how many more places share the pin. */
+  /** The second line: distance and kind. */
   detail: string;
   item: T;
+  /** Font size, CSS pixels; by default from the distance ahead. */
+  font?: number;
 };
 
 export type Box = { x: number; y: number; w: number; h: number };
@@ -62,12 +64,14 @@ export function layoutLabels<T>(
   for (const input of [...inputs].sort((a, b) => a.ahead - b.ahead)) {
     if (placed.length >= max) break;
     if (input.x < area.left - 20 || input.x > area.right + 20) continue;
-    const font = labelFont(input.ahead);
-    const name = fitName(input.name, font, measure);
+    const font = input.font ?? labelFont(input.ahead);
+    // A tag with its own font keeps its padding in proportion to it.
+    const unit = input.font ? input.font / 13 : 1;
+    const name = fitName(input.name, font, measure, MAX_NAME_PX * unit);
     const dot = font * 0.7;
     const textW = Math.max(measure(name, font, true), measure(input.detail, Math.round(font * 0.8), false));
-    const w = LABEL_PAD_X * 2 + dot + 6 + textW;
-    const h = LABEL_PAD_Y * 2 + font * 1.2 + font * 0.95;
+    const w = LABEL_PAD_X * unit * 2 + dot + 6 * unit + textW;
+    const h = LABEL_PAD_Y * unit * 2 + font * 1.2 + font * 0.95;
     const x = Math.min(area.right - w, Math.max(area.left, input.x - w / 2));
     let box: Box = { x, y: input.y - LABEL_POINTER - h, w, h };
     let lifted = false;
