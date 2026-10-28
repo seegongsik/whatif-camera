@@ -18,6 +18,9 @@ Shop data is what OpenStreetMap has mapped, shown with its source; shops change.
 3. **Shops along it**: every place with a name or brand within a corridor of the route (25 to 60 m each side by road class): food, cafés, bars, fashion, groceries, beauty, health, banks, things to do, places to stay and other shops. Each gets its distance along the street and its side. A shop mapped twice (a point and its building) shows once.
 4. **On the photo**: the nearest shops in view are labelled where their signs hang, with the camera that took the photo. When the compass points within 25° of the street, the camera is taken to look along it (phone compasses are often 10 to 20° off between buildings).
 5. **Down the street**: scrolling flies a drone camera along the route. Each shop is a signboard in its category's colour with its name and its distance, standing on its side at its distance; places within 9 m share a pole (up to six signs, then "+N more"). A post every 250 m and an arch every kilometre; a small map shows where you are (tap it to jump); chips filter the kinds of places; "Next:" names the next place ahead. Tap a sign for its card: kind of place, opening hours as mapped, and its Instagram, Facebook and website links when the map has them.
+6. **Signs in the photo** (Muse Spark Open): the photo and the names of the nearest mapped places go to the model, which says which names it can actually read in the picture (and where: left, middle or right). Read ones get a ✓ on the photo and a line says "Right street, right way"; none read, or a photo of building fronts, says what to try instead. The model answers with ids from the list and fixed words only.
+7. **Quest** (Muse Spark Open): pick a theme (coffee and a browse, lunch break, evening out, rainy day, with kids, surprise me) and the model picks two to four stops along the street, in walking order, with a title and one line per stop. It is told each place's kind, side, distance and mapped hours, never its name; its text may hold no digits and no business names (checked; a line that fails is replaced by a plain one). The stops get numbered pillars of light, gold-ringed signs and stars on the small map; scrolling past each one ticks it off. Without the model the app picks the stops itself and says so.
+8. **Share**: a 1080 × 1920 card (the photo, the street's name, the quest or the next places, the map's credit) through the phone's share sheet, for Instagram Stories, WhatsApp and the rest; saved as a picture where sharing files is not supported.
 
 The street is drawn as a toy street: distances along it and the side of each shop are to scale, road widths and building sizes are not (the road is drawn narrower so both rows of signs fit a phone screen). Signs show names in category colours, not logos. Without a photo, `/?street=lat,lon,heading` (or a starting point on the home page) flies down a street from the map alone; `/?demo=street` opens the SYNTHETIC street (invented street and shops, labelled SYNTHETIC).
 
@@ -73,9 +76,11 @@ SYNTHETIC numbers from this repository, not real-world accuracy (that is not mea
 | Role | Model | Where | Status |
 | --- | --- | --- | --- |
 | Design choices and captions from the photo and the facts | `meta-models/muse-spark-open-1026` | Baseten, OpenAI-compatible Chat Completions | wired; used when `BASETEN_API_KEY` is set |
+| Street Ahead: which mapped places' names are readable in the photo | `meta-models/muse-spark-open-1026` | Baseten | wired (`/api/signs`); used when `BASETEN_API_KEY` is set |
+| Street Ahead: quest stops by id, a title and a line per stop | `meta-models/muse-spark-open-1026` | Baseten | wired (`/api/quest`); the app's own pick without a key |
 | Building outline and corners from a tap (automatic marks) | `sam-3.1` | Meta Model API | planned; not called before the hackathon credits are confirmed |
 
-When the design model is configured, the photo (downscaled to 1024 px) and the measured facts are sent to it through the app's server; nothing is stored there. Muse Wonder is documented as unavailable in South Korea, so it is not used. The video is rendered, not generated: a video model would not keep the floor count and the dimension lines consistent from frame to frame.
+When the model is configured, the photo (downscaled to 1024 px) and the measured facts or the nearest places' names are sent to it through the app's server; nothing is stored there. The quest request carries no names and no photo. Muse Wonder is documented as unavailable in South Korea, so it is not used. The video is rendered, not generated: a video model would not keep the floor count and the dimension lines consistent from frame to frame.
 
 ## Data
 
@@ -134,6 +139,7 @@ Street Ahead:
 - The street is matched from GPS and compass alone. On a corner or under tall buildings the GPS fix can sit on the cross street; the app shows which street it took (its name at the top) and the photo labels show whether it fits.
 - A street that changes name keeps going only if the next way runs straight on; a dual carriageway mapped as two one-way roads is followed along the carriageway beside the camera.
 - In the tile fallback, roads without a name cannot be matched and places carry only their kind: no hours, links or brands.
+- Quest lines are ideas from the kind of place, not reviews; hours are as mapped and may be out of date. The sign check only knows names on the map: a sign it reads that the map lacks is not reported.
 - Not checked on real streets yet: the build environment cannot reach the map servers (`PROGRESS.md`).
 
 Building what-if:

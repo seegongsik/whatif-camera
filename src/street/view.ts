@@ -10,7 +10,9 @@ import {
   BufferGeometry,
   CanvasTexture,
   Color,
+  CylinderGeometry,
   DirectionalLight,
+  DoubleSide,
   Float32BufferAttribute,
   Fog,
   Group,
@@ -34,6 +36,7 @@ import {
   type Material,
 } from "three";
 import { verticalFovDeg, type CameraPose } from "../camera/pose.js";
+import { photoForModel } from "../capture/model-photo.js";
 import type { CaptureMeta } from "../capture/types.js";
 import type { EN } from "../geo/enu.js";
 import { quaternionFor, toWorld, toWorldAt } from "../scene/coords.js";
@@ -41,8 +44,12 @@ import { h } from "../ui/dom.js";
 import type { ShopAhead } from "./ahead.js";
 import type { ShopCategory } from "./osm.js";
 import { eyePose, localRoute, photoLabels, type PhotoLabel } from "./photo-labels.js";
+import type { Quest } from "./quest.js";
+import { QuestSheet } from "./quest-ui.js";
+import { drawShareCard, shareCard } from "./share-card.js";
 import { pointAt, type Route } from "./route.js";
-import { CATEGORY_ORDER, CATEGORY_STYLE, distanceText, signTexture, textTexture } from "./signs.js";
+import { badgeTexture, CATEGORY_ORDER, CATEGORY_STYLE, distanceText, signTexture, textTexture } from "./signs.js";
+import { spotPlaces, type Spotted } from "./spotted.js";
 import type { StreetAhead } from "./street.js";
 
 /**
@@ -79,6 +86,13 @@ const INTRO_SHARE = 0.05;
 const SCREENS = 28;
 
 type Cluster = { key: string; side: "left" | "right"; s: number; shops: ShopAhead[]; extra: number };
+
+type ActiveQuest = { quest: Quest; stops: ShopAhead[]; reached: Set<string>; group: Group; markers: Map<string, { beam: Mesh; badge: Mesh }> };
+
+const QUEST_GOLD = "#ffb300";
+const QUEST_DONE = "#2fb866";
+/** A stop counts as reached when the view is this close to it. */
+const REACH_M = 20;
 
 export type StreetViewOptions = {
   street: StreetAhead;
@@ -251,6 +265,16 @@ export class StreetView {
   private readonly next: HTMLElement;
   private readonly minimap: HTMLCanvasElement;
   private readonly card: HTMLElement;
+  private readonly questSheet: QuestSheet;
+  private readonly questBar: HTMLElement;
+  private readonly toast: HTMLElement;
+  private readonly signNote: HTMLElement | null = null;
+  private readonly photo: HTMLCanvasElement | null = null;
+  private quest: ActiveQuest | null = null;
+  /** Places Muse Spark read in the photo. */
+  private spotted = new Set<string>();
+  private toastTimer = 0;
+  private disposed = false;
   private readonly disposables: { dispose(): void }[] = [];
   private s = 0;
   private sTarget = 0;
@@ -274,14 +298,20 @@ export class StreetView {
       this.eye = eyePose(options.street, options.capture, options.photo);
       this.labels = photoLabels(options.street, this.eye);
       options.photo.classList.add("street-photo");
+      this.photo = options.photo;
       this.labelCanvas = h("canvas", { class: "street-labels" });
-      this.photoLayer = h("div", { class: "street-photo-layer" }, options.photo, this.labelCanvas);
+      this.signNote = h("div", { class: "street-sign-note hidden" });
+      this.photoLayer = h("div", { class: "street-photo-layer" }, options.photo, this.labelCanvas, this.signNote);
     }
 
     this.readout = h("div", { class: "street-readout" });
     this.next = h("div", { class: "street-next" });
     this.minimap = h("canvas", { class: "street-minimap", width: 300, height: 300 });
     this.card = h("div", { class: "street-card hidden" });
+    this.questSheet = new QuestSheet(this.street.shops, (quest, stops) => this.startQuest(quest, stops));
+    this.questBar = h("div", { class: "street-quest-bar hidden" });
+    this.toast = h("div", { class: "street-toast hidden" });
+    const questButton = h("button", { class: "street-quest-button", onclick: () => this.questSheet.open() }, "✦ Quest");
     const chips = h("div", { class: "street-chips" });
     for (const category of CATEGORY_ORDER) {
       const count = this.street.shops.filter((s) => s.category === category).length;
@@ -303,6 +333,7 @@ export class StreetView {
       this.street.synthetic ? h("span", { class: "badge", text: "SYNTHETIC" }) : null,
     );
     const close = h("button", { class: "street-close", "aria-label": "Close", onclick: options.onClose }, "×");
+    const share = h("button", { class: "street-share", onclick: () => void this.share() }, "Share");
     const credit = h("div", { class: "street-credit", text: `${this.street.attribution} · ${this.street.shops.length} places within ${distanceText(this.street.route.length)}` });
 
     this.stage = h(
@@ -310,12 +341,15 @@ export class StreetView {
       { class: "street-stage" },
       this.renderer.domElement,
       this.photoLayer,
-      h("div", { class: "street-top" }, title, close),
+      h("div", { class: "street-top" }, title, h("div", { class: "street-top-buttons" }, share, close)),
       this.readout,
+      this.questBar,
       this.minimap,
-      h("div", { class: "street-bottom" }, this.next, chips),
+      this.toast,
+      h("div", { class: "street-bottom" }, h("div", { class: "street-actions" }, questButton), this.next, chips),
       credit,
       this.card,
+      this.questSheet.element,
     );
     this.scroller = h("main", { class: "street" }, this.stage, h("div", { class: "street-spacer", style: `height:${SCREENS * 100}dvh` }));
     this.element = this.scroller;
@@ -344,6 +378,7 @@ export class StreetView {
   start(): void {
     this.onResize();
     this.onScroll();
+    if (this.photo) void this.checkSigns();
     const tick = () => {
       this.raf = requestAnimationFrame(tick);
       this.s += (this.sTarget - this.s) * 0.18;
@@ -353,7 +388,10 @@ export class StreetView {
   }
 
   dispose(): void {
+    this.disposed = true;
     cancelAnimationFrame(this.raf);
+    window.clearTimeout(this.toastTimer);
+    this.endQuest();
     window.removeEventListener("resize", this.onResize);
     for (const key of [...this.active.keys()]) this.drop(key);
     this.scene.traverse((o) => {
@@ -492,6 +530,22 @@ export class StreetView {
     return c.shops.filter((s) => this.filter.has(s.category));
   }
 
+  /** Where a cluster's signs hang: over the pavement on its side, at its distance along the street. */
+  private signSpot(s: number, side: "left" | "right"): EN {
+    const { at, headingDeg } = pointAt(this.route, s);
+    const h0 = (headingDeg * Math.PI) / 180;
+    const off = (side === "right" ? 1 : -1) * (this.roadHalf() + SIDEWALK_M - 0.6);
+    return { x: at.x + Math.cos(h0) * off, y: at.y - Math.sin(h0) * off };
+  }
+
+  /** Height of the top of a shop's sign in its stack. */
+  private signTop(shop: ShopAhead): number {
+    const c = this.clusters.find((x) => x.shops.some((y) => y.id === shop.id));
+    const n = c ? c.shops.length : 1;
+    const i = c ? c.shops.findIndex((y) => y.id === shop.id) : 0;
+    return 6 + Math.min(6, n) * 1.2 + 1.5 + i * SIGN_STEP + SIGN_H;
+  }
+
   private build(c: Cluster): Group {
     const shops = this.visibleShops(c);
     const group = new Group();
@@ -510,13 +564,13 @@ export class StreetView {
     block.rotation.y = (-headingDeg * Math.PI) / 180;
     group.add(block);
     // Signs hang over the pavement in front of the building, on a pole down to the shop's door.
-    const spot: EN = { x: at.x + right.x * sign * (facade - 1), y: at.y + right.y * sign * (facade - 1) };
+    const spot = this.signSpot(c.s, c.side);
     const bottom = blockHeight + 1.5;
     const pole = new Mesh(new BoxGeometry(0.35, bottom, 0.35), new MeshStandardMaterial({ color: "#5f6670", roughness: 0.6 }));
     pole.position.copy(toWorldAt(spot, bottom / 2));
     group.add(pole);
     shops.forEach((shop, i) => {
-      const texture = signTexture(shop.name, shop.category, distanceText(shop.s));
+      const texture = signTexture(shop.name, shop.category, distanceText(shop.s), this.quest?.stops.some((q) => q.id === shop.id) ? QUEST_GOLD : undefined);
       const plane = new Mesh(new PlaneGeometry(SIGN_W, SIGN_H), new MeshBasicMaterial({ map: texture, transparent: true }));
       plane.position.copy(toWorldAt(spot, bottom + SIGN_H / 2 + i * SIGN_STEP));
       plane.userData = { shop, billboard: true };
@@ -600,7 +654,7 @@ export class StreetView {
     this.ground.position.x = this.camera.position.x;
     this.ground.position.z = this.camera.position.z;
     // Signs turn to face the screen, like sprites, so they stay readable as the street bends.
-    for (const group of this.active.values()) {
+    for (const group of [...this.active.values(), ...(this.quest ? [this.quest.group] : [])]) {
       for (const child of group.children) if (child.userData.billboard) child.quaternion.copy(this.camera.quaternion);
     }
     this.renderer.render(this.scene, this.camera);
@@ -620,6 +674,7 @@ export class StreetView {
     this.readout.textContent = `${s < 5 ? "Start" : `${distanceText(s)} along`} · ${distanceText(this.route.length)} of street`;
     const upcoming = this.street.shops.find((x) => x.s > s + 5 && this.filter.has(x.category));
     this.next.textContent = upcoming ? `Next: ${upcoming.name} · ${CATEGORY_STYLE[upcoming.category].label.toLowerCase()} · ${distanceText(upcoming.s - s)} on the ${upcoming.side}` : "No more places ahead on this street";
+    this.updateQuest();
     this.drawMinimapMarker();
   }
 
@@ -642,7 +697,7 @@ export class StreetView {
       const ay = oy + label.anchor.v * scale;
       const y = oy + label.v * scale;
       const style = CATEGORY_STYLE[label.shop.category];
-      const text = `${label.shop.name} · ${distanceText(label.shop.s)}`;
+      const text = `${this.spotted.has(label.shop.id) ? "✓ " : ""}${label.shop.name} · ${distanceText(label.shop.s)}`;
       ctx.font = `700 ${fontPx}px system-ui, sans-serif`;
       const w = ctx.measureText(text).width + fontPx * 1.2;
       // Kept on screen; the pin still points at the shop.
@@ -757,6 +812,21 @@ export class StreetView {
       ctx.arc(t.x(p), t.y(p), 4, 0, Math.PI * 2);
       ctx.fill();
     }
+    this.quest?.stops.forEach((shop, i) => {
+      const { at } = pointAt(this.route, shop.s);
+      ctx.fillStyle = this.quest!.reached.has(shop.id) ? QUEST_DONE : QUEST_GOLD;
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(t.x(at), t.y(at), 15, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "#fff";
+      ctx.font = "800 18px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(String(i + 1), t.x(at), t.y(at) + 1);
+    });
     this.mapBase = ctx.getImageData(0, 0, t.size, t.size);
   }
 
@@ -789,10 +859,163 @@ export class StreetView {
         best = i;
       }
     });
-    const s = Math.max(0, this.route.along[best]);
-    const q = Math.pow(s / this.route.length, 1 / 1.35);
+    this.scrollToS(this.route.along[best]);
+  }
+
+  /** Scrolls so the view stands `s` metres along the street. */
+  private scrollToS(s: number): void {
+    const q = Math.pow(Math.min(1, Math.max(0, s) / this.route.length), 1 / 1.35);
     const p = INTRO_SHARE + q * (1 - INTRO_SHARE);
     const max = this.scroller.scrollHeight - this.scroller.clientHeight;
     this.scroller.scrollTo({ top: p * max, behavior: "smooth" });
+  }
+
+  // ----- Quest -----
+
+  private startQuest(quest: Quest, stops: ShopAhead[]): void {
+    this.endQuest();
+    this.questSheet.close();
+    const group = new Group();
+    const markers = new Map<string, { beam: Mesh; badge: Mesh }>();
+    stops.forEach((shop, i) => {
+      const spot = this.signSpot(shop.s, shop.side);
+      // A pillar of light seen from far down the street, and the stop's number above its sign.
+      const beam = new Mesh(new CylinderGeometry(1.3, 1.3, 90, 20, 1, true), new MeshBasicMaterial({ color: QUEST_GOLD, transparent: true, opacity: 0.32, depthWrite: false, side: DoubleSide, fog: false }));
+      beam.position.copy(toWorldAt(spot, 45));
+      const badge = new Mesh(new PlaneGeometry(5.5, 5.5), new MeshBasicMaterial({ map: badgeTexture(String(i + 1), QUEST_GOLD), transparent: true, fog: false }));
+      badge.position.copy(toWorldAt(spot, this.signTop(shop) + 4));
+      badge.userData = { billboard: true };
+      group.add(beam, badge);
+      markers.set(shop.id, { beam, badge });
+    });
+    this.scene.add(group);
+    this.quest = { quest, stops, reached: new Set(), group, markers };
+    // Rebuild the signs so the stops' signs carry the quest's ring.
+    this.rebuildAll();
+    this.drawMinimap();
+    this.questBar.classList.remove("hidden");
+    this.updateQuest();
+    this.showToast(`✦ ${quest.title}: ${stops.length} stops. Scroll to walk there.`);
+  }
+
+  private endQuest(): void {
+    const active = this.quest;
+    if (!active) return;
+    this.quest = null;
+    active.group.traverse((o) => {
+      const mesh = o as Mesh;
+      if (!mesh.isMesh) return;
+      mesh.geometry.dispose();
+      const m = mesh.material as MeshBasicMaterial;
+      m.map?.dispose();
+      m.dispose();
+    });
+    this.scene.remove(active.group);
+    this.questBar.classList.add("hidden");
+    if (!this.disposed) {
+      this.rebuildAll();
+      this.drawMinimap();
+    }
+  }
+
+  private updateQuest(): void {
+    const active = this.quest;
+    if (!active) return;
+    // Pillars fade as the view comes up to them, so a near one does not fill the screen.
+    for (const shop of active.stops) {
+      const beam = active.markers.get(shop.id)!.beam.material as MeshBasicMaterial;
+      const near = Math.min(1, Math.max(0, (Math.abs(shop.s - this.s) - 10) / 70));
+      beam.opacity = (active.reached.has(shop.id) ? 0.04 : 0.08) + 0.24 * near * near;
+    }
+    active.stops.forEach((shop, i) => {
+      if (active.reached.has(shop.id) || this.s < shop.s - REACH_M) return;
+      active.reached.add(shop.id);
+      const marker = active.markers.get(shop.id)!;
+      (marker.beam.material as MeshBasicMaterial).color.set(QUEST_DONE);
+      const badge = marker.badge.material as MeshBasicMaterial;
+      badge.map?.dispose();
+      badge.map = badgeTexture("✓", QUEST_DONE);
+      badge.needsUpdate = true;
+      this.drawMinimap();
+      const done = active.reached.size === active.stops.length;
+      this.showToast(done ? `✦ Quest complete: ${active.quest.title}` : `★ Stop ${i + 1} of ${active.stops.length}: ${shop.name}`);
+    });
+    const next = active.stops.find((shop) => !active.reached.has(shop.id));
+    const ahead = next ? distanceText(next.s - Math.max(0, this.s)) : "";
+    const key = `${active.reached.size}|${next?.id}|${ahead}`;
+    if (this.questBar.dataset.key === key) return;
+    this.questBar.dataset.key = key;
+    const parts: (Node | null)[] = [
+      h(
+        "div",
+        { class: "quest-bar-text" },
+        h("strong", { text: `✦ ${active.quest.title} · ${active.reached.size}/${active.stops.length}` }),
+        h("div", { text: next ? `Next stop: ${next.name}, ${ahead}` : "Quest complete" }),
+      ),
+      // Arrive just inside the reach of the stop, so it counts.
+      next ? h("button", { onclick: () => this.scrollToS(next.s - REACH_M + 5) }, "Go") : h("button", { onclick: () => void this.share() }, "Share"),
+      h("button", { class: "ghost", "aria-label": "End the quest", onclick: () => this.endQuest() }, "×"),
+    ];
+    this.questBar.replaceChildren(...parts.filter((x): x is Node => x !== null));
+  }
+
+  /** The street (and the quest, when there is one) as a picture for stories and chats. */
+  private async share(): Promise<void> {
+    const canvas = drawShareCard({ street: this.street, photo: this.photo, quest: this.quest && { quest: this.quest.quest, stops: this.quest.stops } });
+    try {
+      if ((await shareCard(canvas, this.street.name ?? "Street Ahead")) === "saved") this.showToast("Saved the card as a picture");
+    } catch (error) {
+      this.showToast(`Could not share: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private showToast(text: string): void {
+    this.toast.textContent = text;
+    this.toast.classList.remove("hidden");
+    // Restart the pop animation.
+    this.toast.classList.remove("pop");
+    void this.toast.offsetWidth;
+    this.toast.classList.add("pop");
+    window.clearTimeout(this.toastTimer);
+    this.toastTimer = window.setTimeout(() => this.toast.classList.add("hidden"), 2600);
+  }
+
+  // ----- Signs in the photo -----
+
+  /** Asks Muse Spark Open which of the nearest mapped places it can read in the photo. */
+  private async checkSigns(): Promise<void> {
+    const note = this.signNote!;
+    const places = spotPlaces(this.street.shops);
+    if (places.length === 0) return;
+    note.textContent = "Muse Spark is reading the signs in your photo…";
+    note.classList.remove("hidden");
+    try {
+      const res = await fetch("/api/signs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: photoForModel(this.photo!), places }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { spotted?: Spotted; error?: string };
+      if (this.disposed) return;
+      if (!res.ok || !body.spotted) {
+        if (res.status === 503) note.classList.add("hidden");
+        else note.textContent = `Sign check unavailable: ${body.error ?? `the server answered ${res.status}`}`;
+        return;
+      }
+      const byId = new Map(this.street.shops.map((x) => [x.id, x]));
+      const names = body.spotted.seen.map((x) => byId.get(x.id)?.name).filter((x): x is string => x !== undefined);
+      this.spotted = new Set(body.spotted.seen.map((x) => x.id));
+      note.classList.toggle("good", names.length > 0);
+      if (names.length > 0) {
+        note.textContent = `✓ Muse Spark read ${names.length === 1 ? "one of these signs" : `${names.length} of these signs`} in your photo: ${names.join(", ")}. Right street, right way.`;
+      } else if (body.spotted.view === "across") {
+        note.textContent = "Muse Spark sees building fronts, not a street running away from you. Turn to look along the street and take the photo again.";
+      } else {
+        note.textContent = "Muse Spark could not read any of these signs in your photo. If the street name at the top is wrong, step a few metres and try again.";
+      }
+      this.drawLabels();
+    } catch (error) {
+      if (!this.disposed) note.textContent = `Sign check unavailable: ${error instanceof Error ? error.message : String(error)}`;
+    }
   }
 }

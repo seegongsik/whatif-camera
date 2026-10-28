@@ -24,8 +24,12 @@ export const CATEGORY_ORDER: ShopCategory[] = ["food", "cafe", "bar", "fashion",
 
 const FONT = '"Inter", system-ui, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", sans-serif';
 
-/** A signboard: the kind of place on a coloured tab, the name in white (auto-shrunk to fit) and how far along the street it stands. */
-export function signTexture(name: string, category: ShopCategory, distance: string): CanvasTexture {
+/**
+ * A signboard: the kind of place on a coloured tab, the name in white
+ * (auto-shrunk to fit) and how far along the street it stands; `ring` draws
+ * a thick border (a quest stop).
+ */
+export function signTexture(name: string, category: ShopCategory, distance: string, ring?: string): CanvasTexture {
   const style = CATEGORY_STYLE[category];
   const w = 512;
   const h = 160;
@@ -41,6 +45,13 @@ export function signTexture(name: string, category: ShopCategory, distance: stri
   ctx.beginPath();
   ctx.roundRect(2, 2, w - 8, h - 12, 28);
   ctx.fill();
+  if (ring) {
+    ctx.strokeStyle = ring;
+    ctx.lineWidth = 12;
+    ctx.beginPath();
+    ctx.roundRect(8, 8, w - 20, h - 24, 22);
+    ctx.stroke();
+  }
   ctx.fillStyle = "rgba(255,255,255,0.22)";
   ctx.beginPath();
   ctx.roundRect(14, 14, 112, h - 36, 20);
@@ -90,6 +101,30 @@ export function textTexture(text: string, color = "#1b1b1b", background = "#ffff
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText(text, 128, 50);
+  const texture = new CanvasTexture(canvas);
+  texture.colorSpace = SRGBColorSpace;
+  return texture;
+}
+
+/** A round badge with a number or a mark: quest stops. */
+export function badgeTexture(text: string, color: string): CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  ctx.arc(64, 64, 62, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(64, 64, 54, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#ffffff";
+  ctx.font = `900 64px ${FONT}`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, 64, 68);
   const texture = new CanvasTexture(canvas);
   texture.colorSpace = SRGBColorSpace;
   return texture;

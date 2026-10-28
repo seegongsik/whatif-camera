@@ -19,6 +19,8 @@ export type ShopCategory =
   | "stay"
   | "shop";
 
+export const SHOP_CATEGORIES: readonly ShopCategory[] = ["food", "cafe", "bar", "fashion", "grocery", "beauty", "health", "money", "fun", "stay", "shop"];
+
 export type StreetWay = {
   id: string;
   name?: string;

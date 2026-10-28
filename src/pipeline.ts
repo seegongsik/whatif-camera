@@ -92,15 +92,7 @@ export function designFacts(spec: BuildingSpec, facade?: string): DesignFacts {
   return facts;
 }
 
-/** A small JPEG of the photo for the design model. */
-export function photoForModel(photo: HTMLCanvasElement, longSide = 1024): string {
-  const scale = Math.min(1, longSide / Math.max(photo.width, photo.height));
-  const c = document.createElement("canvas");
-  c.width = Math.round(photo.width * scale);
-  c.height = Math.round(photo.height * scale);
-  c.getContext("2d")!.drawImage(photo, 0, 0, c.width, c.height);
-  return c.toDataURL("image/jpeg", 0.82);
-}
+export { photoForModel } from "./capture/model-photo.js";
 
 export type PlanOutcome = { plan: DesignPlan; note: string };
 
