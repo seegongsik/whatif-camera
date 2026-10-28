@@ -9,7 +9,7 @@ import { localFrame, toLatLon, toLocal, type LatLon } from "../src/geo/enu.js";
 import { latLonToTile } from "../src/data/mvt.js";
 import { shopsFromOverpass, waysFromOverpass, type Shop, type StreetWay } from "../src/street/osm.js";
 import { nearStreetsQuery, namedStreetQuery, shopsAlongQuery } from "../src/street/overpass.js";
-import { matchStreet, simplify, type LocalWay } from "../src/street/route.js";
+import { MATCH_WIDE_RADIUS_M, matchStreet, simplify, type LocalWay } from "../src/street/route.js";
 import { buildStreetAhead, ROUTE_LENGTH_M, type StreetAhead } from "../src/street/street.js";
 import { CORRIDOR_M, DEFAULT_CORRIDOR_M } from "../src/street/ahead.js";
 import { shopsFromTile, streetsFromTile } from "../src/street/tiles.js";
@@ -54,17 +54,17 @@ async function overpass(url: string, query: string, deps: Deps, deadline: number
 }
 
 /** Streets and shops from one Overpass server: the street beside the camera, the same street ahead, then its shops. */
-async function fromOverpass(url: string, origin: LatLon, headingDeg: number, deps: Deps, deadline: number): Promise<{ ways: StreetWay[]; shops: Shop[] }> {
-  const near = waysFromOverpass(await overpass(url, nearStreetsQuery(origin), deps, deadline));
+async function fromOverpass(url: string, origin: LatLon, headingDeg: number, nameHint: string | undefined, deps: Deps, deadline: number): Promise<{ ways: StreetWay[]; shops: Shop[] }> {
+  const near = waysFromOverpass(await overpass(url, nearStreetsQuery(origin, MATCH_WIDE_RADIUS_M + 10), deps, deadline));
   const frame = localFrame(origin);
   const local: LocalWay[] = near.map((w) => ({ ...w, points: w.points.map((p) => toLocal(frame, p)) }));
-  const match = matchStreet(local, headingDeg);
+  const match = matchStreet(local, headingDeg, nameHint);
   if (!match) return { ways: near, shops: [] };
   const way = near[match.way];
   const key = way.name ? "name" : way.ref ? "ref" : null;
   const ahead = key ? waysFromOverpass(await overpass(url, namedStreetQuery(origin, key, (way.name ?? way.ref)!, ROUTE_LENGTH_M + 300), deps, deadline)) : [];
   const ways = [...near, ...ahead.filter((w) => !near.some((n) => n.id === w.id))];
-  const street = buildStreetAhead({ origin, headingDeg, ways, shops: [], source: "", attribution: "", fetchedAt: "", synthetic: false });
+  const street = buildStreetAhead({ origin, headingDeg, nameHint, ways, shops: [], source: "", attribution: "", fetchedAt: "", synthetic: false });
   if (!street) return { ways, shops: [] };
   const corridor = (CORRIDOR_M[street.highway] ?? DEFAULT_CORRIDOR_M) + 10;
   const line = simplify(
@@ -125,21 +125,21 @@ async function fromTiles(origin: LatLon, headingDeg: number, deps: Deps): Promis
   return { ways: parts.flatMap((p) => p.ways), shops: parts.flatMap((p) => p.shops) };
 }
 
-export async function lookupStreet(origin: LatLon, headingDeg: number, deps: Deps = {}): Promise<StreetAhead> {
+export async function lookupStreet(origin: LatLon, headingDeg: number, deps: Deps = {}, nameHint?: string): Promise<StreetAhead> {
   const env = deps.env ?? process.env;
   const now = deps.now ?? Date.now;
-  const key = `${origin.lat.toFixed(4)},${origin.lon.toFixed(4)},${Math.round(headingDeg / 10) * 10}`;
+  const key = `${origin.lat.toFixed(4)},${origin.lon.toFixed(4)},${Math.round(headingDeg / 10) * 10},${nameHint ?? ""}`;
   const hit = cache.get(key);
   if (hit && now() - hit.at < CACHE_MS) return hit.value;
 
   const failures: string[] = [];
   const finish = (data: { ways: StreetWay[]; shops: Shop[] }, source: string, attribution: string): StreetAhead | null =>
-    buildStreetAhead({ origin, headingDeg, ...data, source, attribution, fetchedAt: new Date(now()).toISOString(), synthetic: false });
+    buildStreetAhead({ origin, headingDeg, nameHint, ...data, source, attribution, fetchedAt: new Date(now()).toISOString(), synthetic: false, notes: [...failures] });
 
   const deadline = Date.now() + OVERPASS_BUDGET_MS;
   for (const url of overpassUrls(env)) {
     try {
-      const street = finish(await fromOverpass(url, origin, headingDeg, deps, deadline), `OpenStreetMap via Overpass API (${new URL(url).host})`, OSM_ATTRIBUTION);
+      const street = finish(await fromOverpass(url, origin, headingDeg, nameHint, deps, deadline), `OpenStreetMap via Overpass API (${new URL(url).host})`, OSM_ATTRIBUTION);
       if (!street) throw new UpstreamError(404, "No street runs beside you in the direction the camera faces (OpenStreetMap).");
       cache.set(key, { at: now(), value: street });
       return street;
@@ -151,7 +151,10 @@ export async function lookupStreet(origin: LatLon, headingDeg: number, deps: Dep
   if (env.FOOTPRINT_TILES !== "off") {
     try {
       const street = finish(await fromTiles(origin, headingDeg, deps), "OpenStreetMap via OpenFreeMap vector tiles", TILE_ATTRIBUTION);
-      if (!street) throw new UpstreamError(404, "No named street runs beside you in the direction the camera faces (map tiles).");
+      if (!street) {
+        const why = failures.length > 0 ? ` Overpass did not answer first (${failures.join(" | ")}).` : "";
+        throw new UpstreamError(404, `No named street runs beside you in the direction the camera faces (map tiles).${why}`);
+      }
       cache.set(key, { at: now(), value: street });
       return street;
     } catch (error) {

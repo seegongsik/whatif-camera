@@ -379,6 +379,7 @@ export class StreetView {
     this.onResize();
     this.onScroll();
     if (this.photo) void this.checkSigns();
+    if (this.street.streetDistanceM > 30) this.showToast(`Matched ${this.street.name ?? "the street"} ${distanceText(this.street.streetDistanceM)} from your position`);
     const tick = () => {
       this.raf = requestAnimationFrame(tick);
       this.s += (this.sTarget - this.s) * 0.18;

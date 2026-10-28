@@ -26,6 +26,8 @@ export type StreetAhead = {
   highway: string;
   route: { points: LatLon[]; along: number[]; length: number };
   shops: ShopAhead[];
+  /** Why the data came from where it did (a busy server, a fallback). */
+  notes?: string[];
 };
 
 export type StreetInput = {
@@ -38,13 +40,17 @@ export type StreetInput = {
   fetchedAt: string;
   synthetic: boolean;
   maxLengthM?: number;
+  /** The street's name when the starting point was picked from a list. */
+  nameHint?: string;
+  /** Why the data came from where it did (a busy server, a fallback). */
+  notes?: string[];
 };
 
 /** The street ahead, or null when no street runs near the camera in the direction it faces. */
 export function buildStreetAhead(input: StreetInput): StreetAhead | null {
   const frame = localFrame(input.origin);
   const local: LocalWay[] = input.ways.map((w) => ({ ...w, points: w.points.map((p) => toLocal(frame, p)) }));
-  const match = matchStreet(local, input.headingDeg);
+  const match = matchStreet(local, input.headingDeg, input.nameHint);
   if (!match) return null;
   const route = followRoute(local, match, input.maxLengthM ?? ROUTE_LENGTH_M);
   const highway = local[match.way].highway;
@@ -67,5 +73,6 @@ export function buildStreetAhead(input: StreetInput): StreetAhead | null {
     highway,
     route: { points: route.points.map((p) => toLatLon(frame, p)), along: route.along, length: route.length },
     shops,
+    ...(input.notes && input.notes.length > 0 ? { notes: input.notes } : {}),
   };
 }

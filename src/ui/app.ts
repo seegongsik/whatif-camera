@@ -41,13 +41,14 @@ type Status = { basetenApiKeyConfigured: boolean; modelApiKeyConfigured: boolean
 const params = new URLSearchParams(location.search);
 
 /**
- * Streets to fly down from the map alone, without a photo: a point on the
- * street and the direction to look. Starting points, not survey marks.
+ * Streets to fly down from the map alone, without a photo: a point near the
+ * street, the direction to look and the street's name on the map (which
+ * picks it out when the point is a little off). Starting points, not survey marks.
  */
 const FAMOUS_STREETS = [
-  { label: "Gangnam-daero, Seoul (north from Gangnam Station)", lat: 37.4985, lon: 127.0274, headingDeg: 343 },
-  { label: "Fifth Avenue, New York (north from Rockefeller Center)", lat: 40.7584, lon: -73.9781, headingDeg: 29 },
-  { label: "Robson Street, Vancouver (north-west from Burrard)", lat: 49.2836, lon: -123.1213, headingDeg: 315 },
+  { label: "Gangnam-daero, Seoul (north from Gangnam Station)", lat: 37.4985, lon: 127.0274, headingDeg: 343, street: "강남대로" },
+  { label: "Fifth Avenue, New York (north from 42nd Street)", lat: 40.7536, lon: -73.9807, headingDeg: 29, street: "5th Avenue" },
+  { label: "Robson Street, Vancouver (north-west from Burrard)", lat: 49.2838, lon: -123.1233, headingDeg: 315, street: "Robson Street" },
 ];
 
 export class App {
@@ -91,9 +92,10 @@ export class App {
         this.showStreet(syntheticStreet());
         return;
       }
-      const at = params.get("street")?.split(",").map(Number);
-      if (at && at.length === 3 && at.every(Number.isFinite)) {
-        await this.streetFor({ lat: at[0], lon: at[1], headingDeg: at[2] });
+      const at = params.get("street")?.split(",");
+      const nums = at?.slice(0, 3).map(Number);
+      if (at && nums && nums.length === 3 && nums.every(Number.isFinite)) {
+        await this.streetFor({ lat: nums[0], lon: nums[1], headingDeg: nums[2], street: at.slice(3).join(",").trim() || undefined });
         return;
       }
       const preset = params.get("preset");
@@ -214,10 +216,12 @@ export class App {
     );
   }
 
-  private async streetFor(at: { lat: number; lon: number; headingDeg: number }, photo?: HTMLCanvasElement, capture?: CaptureMeta): Promise<void> {
+  private async streetFor(at: { lat: number; lon: number; headingDeg: number; street?: string }, photo?: HTMLCanvasElement, capture?: CaptureMeta): Promise<void> {
     this.screen(h("main", { class: "page center" }, h("div", { class: "spinner" }), h("p", { text: "Finding the street ahead and its shops (OpenStreetMap)…" })));
     try {
-      const res = await fetch(`/api/street?lat=${at.lat}&lon=${at.lon}&heading=${at.headingDeg}`);
+      const query = new URLSearchParams({ lat: String(at.lat), lon: String(at.lon), heading: String(at.headingDeg) });
+      if (at.street) query.set("street", at.street);
+      const res = await fetch(`/api/street?${query}`);
       const body = (await res.json().catch(() => ({}))) as Partial<StreetAhead> & { error?: string };
       if (!res.ok || !body.route) throw new Error(body.error ?? `The street lookup answered ${res.status}.`);
       this.showStreet(body as StreetAhead, photo, capture);

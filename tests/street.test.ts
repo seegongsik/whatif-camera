@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { localFrame, toLocal } from "../src/geo/enu.js";
 import { categorize, shopFromTags, shopsFromOverpass, socialUrl, waysFromOverpass } from "../src/street/osm.js";
 import { followRoute, matchStreet, placeOnRoute, simplify, type LocalWay } from "../src/street/route.js";
+import { namedStreetQuery, piecesOf, shopsAlongQuery } from "../src/street/overpass.js";
 import { buildStreetAhead } from "../src/street/street.js";
 import {
   SYNTHETIC_CAPTURE,
@@ -55,6 +56,38 @@ describe("the street ahead (SYNTHETIC)", () => {
     expect(m!.distanceM).toBeCloseTo(0, 6);
     expect(matchStreet(localWays, 75)).toBeNull();
     expect(matchStreet(localWays, 184)?.forward).toBe(false);
+  });
+
+  it("widens the search when the GPS fix is off the street, and takes a named street first", () => {
+    const from = (dx: number): LocalWay[] => localWays.map((w) => ({ ...w, points: w.points.map((p) => ({ x: p.x - dx, y: p.y })) }));
+    // 90 m east of the avenue: beyond the near radius, inside the wide one.
+    const m = matchStreet(from(90), 4);
+    expect(localWays[m!.way].name).toBe(SYNTHETIC_STREET_NAME);
+    expect(m!.distanceM).toBeCloseTo(90, 6);
+    expect(matchStreet(from(150), 4)).toBeNull();
+    // Two parallel streets: the nearer one, unless the name given says otherwise.
+    const parallel: LocalWay[] = [
+      { id: "a", name: "A Street", highway: "primary", points: [{ x: -60, y: -100 }, { x: -60, y: 400 }] },
+      { id: "b", name: "B Street", highway: "primary", points: [{ x: 40, y: -100 }, { x: 40, y: 400 }] },
+    ];
+    expect(parallel[matchStreet(parallel, 0)!.way].name).toBe("B Street");
+    expect(parallel[matchStreet(parallel, 0, "a street")!.way].name).toBe("A Street");
+    expect(parallel[matchStreet(parallel, 0, "C Street")!.way].name).toBe("B Street");
+  });
+
+  it("asks Overpass with boxes: around the camera for the named street, every 250 m along it for shops", () => {
+    // 5.3 km each way: 0.0476° of latitude, 0.0600° of longitude at 37.5° N.
+    expect(namedStreetQuery({ lat: 37.5, lon: 127 }, "name", 'Main "Street"', 5300)).toContain('way[highway][name="Main \\"Street\\""](37.452390,126.939988,37.547610,127.060012)');
+    const line = [
+      { lat: 37.5, lon: 127 },
+      { lat: 37.545, lon: 127 },
+    ];
+    const pieces = piecesOf(line, 250);
+    expect(pieces).toHaveLength(21);
+    expect(pieces[0][1].lat - pieces[0][0].lat).toBeCloseTo(250 / 111_320, 9);
+    const query = shopsAlongQuery(line, 65);
+    expect(query.match(/nwr\[/g)).toHaveLength(21 * 4);
+    expect(query).not.toContain("around");
   });
 
   it("follows the avenue through its bend instead of the side road that carries straight on", () => {

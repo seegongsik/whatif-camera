@@ -59,11 +59,13 @@ export async function handleStreet(request: Request, deps: Deps = {}): Promise<R
   const [lat, lon, heading] = ["lat", "lon", "heading"].map((k) => (url.searchParams.has(k) ? Number(url.searchParams.get(k)) : NaN));
   if (![lat, lon, heading].every(Number.isFinite)) return json({ error: "lat, lon and heading are required numbers" }, 400);
   if (Math.abs(lat) > 85 || Math.abs(lon) > 180) return json({ error: "lat within ±85, lon within ±180" }, 400);
+  const name = url.searchParams.get("street") ?? undefined;
+  if (name !== undefined && (name.trim().length === 0 || name.length > 80)) return json({ error: "street must be a name of 1 to 80 characters" }, 400);
   if (!takeCall("street", (deps.now ?? Date.now)(), deps.env ?? process.env)) {
     return json({ error: "daily street lookups for this server instance are used up" }, 429);
   }
   try {
-    const street = await lookupStreet({ lat, lon }, ((heading % 360) + 360) % 360, deps);
+    const street = await lookupStreet({ lat, lon }, ((heading % 360) + 360) % 360, deps, name?.trim());
     return json(street, 200, { "Cache-Control": "public, max-age=900, s-maxage=3600" });
   } catch (error) {
     if (error instanceof UpstreamError) return json({ error: error.message }, error.status);

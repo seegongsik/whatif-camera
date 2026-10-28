@@ -68,10 +68,13 @@ function syntheticTile(): Uint8Array {
   const pois = layer(
     "poi",
     ["name", "class", "subclass"],
-    ["Tile Cafe", "cafe", "Tile School", "school"],
+    ["Tile Cafe", "cafe", "Tile School", "school", "Tile Holdings", "company", "Tile Bikes", "bicycle_rental"],
     [
       { type: 1, tags: [0, 0, 1, 1, 2, 1], geometry: pointGeometry(px + 20, py - 200) },
       { type: 1, tags: [0, 2, 1, 3, 2, 3], geometry: pointGeometry(px - 20, py - 300) },
+      // An office and a bike dock: not places to shop.
+      { type: 1, tags: [0, 4, 1, 5, 2, 5], geometry: pointGeometry(px + 20, py - 400) },
+      { type: 1, tags: [0, 6, 1, 7, 2, 7], geometry: pointGeometry(px - 20, py - 500) },
     ],
   );
   return new Uint8Array([...lenDelim(3, roads), ...lenDelim(3, pois)]);
@@ -102,9 +105,9 @@ describe("street lookup (SYNTHETIC)", () => {
     });
     const street = await lookupStreet(origin, SYNTHETIC_CAPTURE.headingDeg, { fetchImpl, env: {} });
     expect(calls).toHaveLength(3);
-    expect(calls[0].body).toContain("way(around:60,");
+    expect(calls[0].body).toContain("way(around:130,");
     expect(calls[1].body).toContain(`[name="${SYNTHETIC_STREET_NAME}"]`);
-    expect(calls[2].body).toContain("nwr(around:65,");
+    expect(calls[2].body).toContain("nwr[shop](");
     expect(street.name).toBe(SYNTHETIC_STREET_NAME);
     expect(street.source).toContain("overpass-api.de");
     expect(street.route.length).toBeCloseTo(5000, 3);
@@ -124,6 +127,18 @@ describe("street lookup (SYNTHETIC)", () => {
     expect(street.name).toBe("Tile Street");
     expect(street.shops.map((s) => s.name)).toEqual(["Tile Cafe"]);
     expect(street.shops[0].side).toBe("right");
+    // Why the tiles: kept on the answer.
+    expect(street.notes?.join(" ")).toMatch(/504 busy/);
+  });
+
+  it("takes the named street when the starting point is a little off", async () => {
+    const { fetchImpl } = fakeFetch(({ body }) => (body.includes("out center tags") ? Response.json(syntheticShopsJson()) : Response.json(syntheticWaysJson())));
+    // 70 m east of the avenue.
+    const off = { lat: origin.lat, lon: origin.lon + 70 / (111_320 * Math.cos((origin.lat * Math.PI) / 180)) };
+    const street = await lookupStreet(off, 4, { fetchImpl, env: {} }, "synthetic avenue");
+    expect(street.name).toBe(SYNTHETIC_STREET_NAME);
+    expect(street.streetDistanceM).toBeGreaterThan(70);
+    expect(street.notes).toBeUndefined();
   });
 
   it("says when no street runs beside the camera", async () => {
@@ -135,6 +150,7 @@ describe("street lookup (SYNTHETIC)", () => {
     const response = await handleStreet(new Request("http://local/api/street?lat=37.5&lon=127"));
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "lat, lon and heading are required numbers" });
+    expect((await handleStreet(new Request("http://local/api/street?lat=37.5&lon=127&heading=0&street=%20"))).status).toBe(400);
   });
 });
 

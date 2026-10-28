@@ -88,12 +88,20 @@ export function streetsFromTile(tile: Uint8Array, z: number, tx: number, ty: num
   return out;
 }
 
-/** POI classes and values in the tiles that are not places to shop, eat or stay. */
+/**
+ * POI classes and values in the tiles that are not places to shop, eat or
+ * stay: public buildings, street furniture, and offices (the tile keeps an
+ * office's value, such as "company", without saying it is an office).
+ */
 const NOT_SHOPS = new Set([
   "school", "college", "university", "kindergarten", "hospital", "place_of_worship", "parking", "bicycle_parking",
   "bus", "railway", "ferry_terminal", "aerialway", "police", "fire_station", "town_hall", "townhall", "post", "post_office",
   "library", "toilets", "drinking_water", "information", "park", "playground", "garden", "campsite", "cemetery",
   "grave_yard", "shelter", "fuel", "charging_station", "atm", "bench", "waste_basket", "recycling", "entrance",
+  "bicycle_rental", "vending_machine", "parcel_locker", "post_box", "telephone", "taxi",
+  "office", "company", "insurance", "diplomatic", "government", "lawyer", "estate_agent", "employment_agency", "it", "ngo",
+  "coworking", "telecommunication", "financial", "tax_advisor", "accountant", "architect", "association", "consulting",
+  "educational_institution", "religion", "political_party", "notary", "research", "foundation", "newspaper", "advertising_agency",
 ]);
 
 export function shopsFromTile(tile: Uint8Array, z: number, tx: number, ty: number): Shop[] {
@@ -108,10 +116,9 @@ export function shopsFromTile(tile: Uint8Array, z: number, tx: number, ty: numbe
     // The tile keeps the OSM value in subclass; the key it came from is not kept.
     const cls = typeof f.props.class === "string" ? f.props.class : "";
     const kind =
-      categorize({ amenity: sub }) ??
-      categorize({ tourism: sub }) ??
-      categorize({ leisure: sub }) ??
-      (NOT_SHOPS.has(cls) || NOT_SHOPS.has(sub) ? null : categorize({ shop: sub }));
+      NOT_SHOPS.has(cls) || NOT_SHOPS.has(sub)
+        ? null
+        : (categorize({ amenity: sub }) ?? categorize({ tourism: sub }) ?? categorize({ leisure: sub }) ?? categorize({ shop: sub }));
     if (!kind) return;
     for (const [p] of geometryParts(f.geometry)) {
       if (!p || p.x < 0 || p.y < 0 || p.x > layer.extent || p.y > layer.extent) continue;
