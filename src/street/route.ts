@@ -28,8 +28,13 @@ export type Route = {
 
 export type StreetMatch = { way: number; segment: number; t: number; forward: boolean; distanceM: number; angleDeg: number };
 
-/** How far the street may be from the camera, and how far off its direction the camera may point. */
+/**
+ * How far the street may be from the camera, and how far off its direction
+ * the camera may point. Between tall buildings a GPS fix is often 50 to 100 m
+ * off, so when no street is that near the search widens.
+ */
 export const MATCH_RADIUS_M = 45;
+export const MATCH_WIDE_RADIUS_M = 120;
 export const MATCH_ANGLE_DEG = 40;
 /** The route starts a little behind the camera, so shops right beside it are on it. */
 export const BEHIND_M = 20;
@@ -50,11 +55,30 @@ const sub = (a: EN, b: EN): EN => ({ x: a.x - b.x, y: a.y - b.y });
 const len = (v: EN): number => Math.hypot(v.x, v.y);
 const lerp = (a: EN, b: EN, t: number): EN => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
 
-/** The street the camera stands beside and looks along, or null when none is near enough. */
-export function matchStreet(ways: LocalWay[], headingDeg: number): StreetMatch | null {
+/** Names compared without case, spaces or punctuation. */
+export function sameName(a: string | undefined, b: string): boolean {
+  const n = (x: string) => x.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+  return a !== undefined && n(a) === n(b) && n(b).length > 0;
+}
+
+/**
+ * The street the camera stands beside and looks along, or null when none is
+ * near enough. With a name (a starting point picked from a list), a street
+ * of that name within the wider radius comes first.
+ */
+export function matchStreet(ways: LocalWay[], headingDeg: number, nameHint?: string): StreetMatch | null {
+  if (nameHint) {
+    const named = bestMatch(ways, headingDeg, MATCH_WIDE_RADIUS_M, (w) => sameName(w.name, nameHint) || sameName(w.ref, nameHint));
+    if (named) return named;
+  }
+  return bestMatch(ways, headingDeg, MATCH_RADIUS_M) ?? bestMatch(ways, headingDeg, MATCH_WIDE_RADIUS_M);
+}
+
+function bestMatch(ways: LocalWay[], headingDeg: number, radiusM: number, keep: (way: LocalWay) => boolean = () => true): StreetMatch | null {
   let best: (StreetMatch & { score: number }) | null = null;
   for (let wi = 0; wi < ways.length; wi += 1) {
     const way = ways[wi];
+    if (!keep(way)) continue;
     for (let si = 0; si + 1 < way.points.length; si += 1) {
       const a = way.points[si];
       const b = way.points[si + 1];
@@ -63,12 +87,12 @@ export function matchStreet(ways: LocalWay[], headingDeg: number): StreetMatch |
       if (l2 < 1e-6) continue;
       const t = Math.min(1, Math.max(0, -(a.x * v.x + a.y * v.y) / l2));
       const d = len(lerp(a, b, t));
-      if (d > MATCH_RADIUS_M) continue;
+      if (d > radiusM) continue;
       const delta = Math.abs(wrapDeg(bearingDeg(a, b) - headingDeg));
       const forward = delta <= 90;
       const angle = forward ? delta : 180 - delta;
       if (angle > MATCH_ANGLE_DEG) continue;
-      const score = d / MATCH_RADIUS_M + angle / MATCH_ANGLE_DEG + (RANK[way.highway] ?? 0.3) + (way.name ? 0 : 0.3);
+      const score = d / radiusM + angle / MATCH_ANGLE_DEG + (RANK[way.highway] ?? 0.3) + (way.name ? 0 : 0.3);
       if (!best || score < best.score) best = { way: wi, segment: si, t, forward, distanceM: d, angleDeg: angle, score };
     }
   }

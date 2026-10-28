@@ -5,6 +5,7 @@
  */
 import { localFrame, toLatLon, toLocal, type LatLon } from "../geo/enu.js";
 import { CORRIDOR_M, DEFAULT_CORRIDOR_M, shopsAlong, type ShopAhead } from "./ahead.js";
+import { shopRank } from "./overture.js";
 import type { Shop, StreetWay } from "./osm.js";
 import { followRoute, matchStreet, pointAt, type LocalWay } from "./route.js";
 
@@ -26,6 +27,10 @@ export type StreetAhead = {
   highway: string;
   route: { points: LatLon[]; along: number[]; length: number };
   shops: ShopAhead[];
+  /** Why the data came from where it did (a busy server, a fallback). */
+  notes?: string[];
+  /** How many places the street had before it was cut to `shops`, when it was cut. */
+  placesFound?: number;
 };
 
 export type StreetInput = {
@@ -38,22 +43,35 @@ export type StreetInput = {
   fetchedAt: string;
   synthetic: boolean;
   maxLengthM?: number;
+  /** The street's name when the starting point was picked from a list. */
+  nameHint?: string;
+  /** Why the data came from where it did (a busy server, a fallback). */
+  notes?: string[];
+  /** Keep at most this many places: the most certain ones, then those with links. */
+  maxShops?: number;
 };
 
 /** The street ahead, or null when no street runs near the camera in the direction it faces. */
 export function buildStreetAhead(input: StreetInput): StreetAhead | null {
   const frame = localFrame(input.origin);
   const local: LocalWay[] = input.ways.map((w) => ({ ...w, points: w.points.map((p) => toLocal(frame, p)) }));
-  const match = matchStreet(local, input.headingDeg);
+  const match = matchStreet(local, input.headingDeg, input.nameHint);
   if (!match) return null;
   const route = followRoute(local, match, input.maxLengthM ?? ROUTE_LENGTH_M);
   const highway = local[match.way].highway;
   const corridor = CORRIDOR_M[highway] ?? DEFAULT_CORRIDOR_M;
-  const shops = shopsAlong(
+  const found = shopsAlong(
     route,
     input.shops.map((shop) => ({ shop, local: toLocal(frame, shop.point) })),
     corridor,
   );
+  const cut = input.maxShops !== undefined && found.length > input.maxShops;
+  const shops = cut
+    ? [...found]
+        .sort((a, b) => shopRank(b) - shopRank(a))
+        .slice(0, input.maxShops)
+        .sort((a, b) => a.s - b.s)
+    : found;
   return {
     source: input.source,
     attribution: input.attribution,
@@ -67,5 +85,7 @@ export function buildStreetAhead(input: StreetInput): StreetAhead | null {
     highway,
     route: { points: route.points.map((p) => toLatLon(frame, p)), along: route.along, length: route.length },
     shops,
+    ...(input.notes && input.notes.length > 0 ? { notes: input.notes } : {}),
+    ...(cut ? { placesFound: found.length } : {}),
   };
 }

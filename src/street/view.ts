@@ -334,7 +334,8 @@ export class StreetView {
     );
     const close = h("button", { class: "street-close", "aria-label": "Close", onclick: options.onClose }, "×");
     const share = h("button", { class: "street-share", onclick: () => void this.share() }, "Share");
-    const credit = h("div", { class: "street-credit", text: `${this.street.attribution} · ${this.street.shops.length} places within ${distanceText(this.street.route.length)}` });
+    const count = this.street.placesFound ? `${this.street.shops.length} of ${this.street.placesFound} places` : `${this.street.shops.length} places`;
+    const credit = h("div", { class: "street-credit", text: `${this.street.attribution} · ${count} within ${distanceText(this.street.route.length)}` });
 
     this.stage = h(
       "div",
@@ -379,6 +380,7 @@ export class StreetView {
     this.onResize();
     this.onScroll();
     if (this.photo) void this.checkSigns();
+    if (this.street.streetDistanceM > 30) this.showToast(`Matched ${this.street.name ?? "the street"} ${distanceText(this.street.streetDistanceM)} from your position`);
     const tick = () => {
       this.raf = requestAnimationFrame(tick);
       this.s += (this.sTarget - this.s) * 0.18;
@@ -758,6 +760,7 @@ export class StreetView {
       shop.cuisine ? h("p", { class: "muted", text: `Cuisine: ${shop.cuisine.replace(/;/g, ", ").replace(/_/g, " ")}` }) : null,
       shop.openingHours ? h("p", { class: "muted", text: `Hours (as mapped): ${shop.openingHours}` }) : null,
       h("div", { class: "row wrap" }, ...links),
+      shop.id.startsWith("ovt/") ? h("p", { class: "muted small", text: "Place from Overture Maps, whose places come largely from Meta's place data (Facebook pages)." }) : null,
       h("p", { class: "muted small", text: `From ${this.street.source}. Shops change; the map may be out of date.` }),
       h("button", { class: "ghost", onclick: () => this.card.classList.add("hidden") }, "Close"),
     ];
