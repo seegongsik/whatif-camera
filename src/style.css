@@ -1465,6 +1465,10 @@ body.street-mode main.landing h1 {
 }
 
 .hero-frame {
+  /* Small enough on a short screen that the Open camera button below it is in the first screen. */
+  width: min(100%, calc((100vh - 215px) * 0.8));
+  width: min(100%, calc((100svh - 215px) * 0.8));
+  margin: 0 auto;
   aspect-ratio: 4 / 5;
   overflow: hidden;
   border: 1px solid rgba(127, 227, 255, 0.3);
@@ -1516,7 +1520,7 @@ body.street-mode main.landing h1 {
 }
 
 body.street-mode main.landing .lead {
-  margin: 0 0 18px;
+  margin: 16px 0 4px;
   font-size: 1rem;
 }
 
