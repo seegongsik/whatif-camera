@@ -196,12 +196,13 @@ export class App {
     this.screen(
       h(
         "main",
-        { class: "home" },
+        { class: "home landing" },
         h("div", { class: "home-kicker", text: "ONE PHOTO · THE NEXT 5 KM" }),
         h("h1", {}, "What's Ahead", h("span", { class: "accent", text: "?" })),
+        heroClip(),
         h("p", {
           class: "lead",
-          text: "Point your phone down a street and take one photo. A light runs 5 km down the street, dotting every place the map knows at its distance and side, and stops at the landmarks. Then tap Restaurants, Cafés, Shops… to send it down the street again for just those.",
+          text: "Point your phone down a street and take one photo. A light runs 5 km ahead, dots every place the map knows on its side of the street, and stops at the landmarks.",
         }),
         error ? h("p", { class: "error", text: error }) : null,
         this.inAppNote(),
@@ -212,8 +213,25 @@ export class App {
           h("button", { onclick: () => photoInput.click() }, "Use a photo"),
           h("button", { class: "ghost", onclick: () => this.showStreet(syntheticStreet()) }, "Synthetic street"),
         ),
-        h("p", { class: "muted small", text: "Or fly down a street from the map alone:" }),
-        h("div", { class: "street-places" }, ...orderForZone(FAMOUS_STREETS, timeZone()).map((s) => h("button", { onclick: () => void this.streetFor(s) }, s.label))),
+        h("div", { class: "home-section" }, h("span", { text: "DEMO STREETS" }), h("span", { class: "home-section-note", text: "from the map, no photo" })),
+        h(
+          "ol",
+          { class: "demo-streets" },
+          ...orderForZone(FAMOUS_STREETS, timeZone()).map((s, i) =>
+            h(
+              "li",
+              {},
+              h(
+                "button",
+                { "aria-label": s.label, title: s.label, onclick: () => void this.streetFor(s) },
+                h("span", { class: "demo-n", text: String(i + 1).padStart(2, "0") }),
+                h("span", { class: "demo-name", text: s.name }),
+                h("span", { class: "demo-city", text: s.city }),
+                h("span", { class: "demo-go", "aria-hidden": "true", text: "›" }),
+              ),
+            ),
+          ),
+        ),
         this.fieldLogBox(readFieldLog()),
         photoInput,
         h("p", { class: "muted small", text: "Streets © OpenStreetMap contributors (ODbL); places © Overture Maps Foundation (CDLA-Permissive-2.0). Places change; the map may be out of date." }),
@@ -768,4 +786,35 @@ function timeZone(): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * The landing's moving picture: a recording of the app itself (the photo is
+ * a drawn street; the street, its places and landmarks are real map data,
+ * credited in the clip). Still, on its poster, when motion is reduced.
+ */
+function heroClip(): HTMLElement {
+  const still = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const video = h("video", {
+    class: "hero-clip",
+    src: "/demo/whats-ahead-loop.mp4",
+    poster: "/demo/whats-ahead-loop.jpg",
+    "aria-label": "Recording of the app: a photo down 7th Avenue from Times Square, then a light running the street and stopping at its landmarks",
+  });
+  // Muted and inline, as attributes too, so phones let it play by itself.
+  for (const name of ["muted", "playsinline", "loop"]) video.setAttribute(name, "");
+  video.muted = true;
+  video.playsInline = true;
+  video.loop = true;
+  if (!still) {
+    video.autoplay = true;
+    void video.play().catch(() => undefined);
+  }
+  // The label sits above the picture, clear of the app's own title in it.
+  return h(
+    "figure",
+    { class: "hero" },
+    h("figcaption", { class: "hero-tag" }, h("span", {}, h("i"), "DEMO · FROM TIMES SQUARE, NEW YORK"), h("span", { class: "hero-tag-note", text: "real map data" })),
+    h("div", { class: "hero-frame" }, video),
+  );
 }
