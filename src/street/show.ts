@@ -51,7 +51,7 @@ import {
 } from "./show-plan.js";
 import { drawTag, glow, MONO, rgba, SANS, tagMeasure, type TagStyle } from "./show-draw.js";
 import { distanceText } from "./signs.js";
-import { cutSign, drawSignBoxes, numberSigns, readSamReply, type SignBox } from "./sign-boxes.js";
+import { cutSign, drawSignBoxes, numberSigns, readSamReply, signsForPlaces, type SignBox } from "./sign-boxes.js";
 import { spotPlaces, type Spotted } from "./spotted.js";
 import { layoutLabels, roadSpan, type Box, type LabelInput, type PlacedLabel, type ScreenPoint } from "./street-labels.js";
 import { localRoute, type StreetAhead } from "./street.js";
@@ -1608,7 +1608,7 @@ export class StreetShow {
         return;
       }
       this.samFound = reply.signs.length;
-      this.signBoxes = numberSigns(reply.signs);
+      this.signBoxes = numberSigns(reply.signs, Math.max(reply.width, reply.height));
       this.samState = "done";
     } catch {
       if (!this.disposed) this.samState = "failed";
@@ -1646,8 +1646,9 @@ export class StreetShow {
       const photo = this.options.photo;
       const full = photo.width / model.canvas.width;
       const pictures: { src: string; alt: string }[] = [];
+      const signs = signsForPlaces(read, boxes);
       for (const x of read) {
-        const box = x.box === undefined ? undefined : boxes.find((b) => b.n === x.box);
+        const box = signs.get(x.id);
         if (!box) continue;
         // From the full photo for a sharp picture, unless that would be a large one to make while the light runs.
         const sharp = (box.x2 - box.x1) * full <= CUT_MAX_PX;

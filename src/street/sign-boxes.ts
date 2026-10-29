@@ -15,6 +15,13 @@ export type SignBox = SamSignBox & { n: number };
 
 export type SamSigns = { width: number; height: number; signs: SamSignBox[] };
 
+/**
+ * Signs smaller than this (fractions of the picture's long side) are not
+ * numbered: their names are too small to read, and two far signs side by
+ * side got each other's numbers.
+ */
+export const MIN_SIGN = { w: 0.035, h: 0.013 };
+
 const BOX_COLOR = "#ffe600";
 const EDGE_COLOR = "rgba(0, 0, 0, 0.9)";
 
@@ -50,13 +57,36 @@ export function readSamReply(raw: unknown): SamSigns | null {
   return { width, height, signs };
 }
 
-/** The most certain signs, at most `max`, numbered 1, 2, … from left to right (then top to bottom), the way a reader scans. */
-export function numberSigns(signs: SamSignBox[], max = MAX_SIGN_BOXES): SignBox[] {
-  return [...signs]
+/** Whether a sign is big enough in a picture with this long side to read a name on. */
+export function bigEnough(sign: SamSignBox, longSide: number): boolean {
+  return sign.x2 - sign.x1 >= MIN_SIGN.w * longSide && sign.y2 - sign.y1 >= MIN_SIGN.h * longSide;
+}
+
+/** The most certain signs big enough to read, at most `max`, numbered 1, 2, … from left to right (then top to bottom), the way a reader scans. */
+export function numberSigns(signs: SamSignBox[], longSide: number, max = MAX_SIGN_BOXES): SignBox[] {
+  return signs
+    .filter((s) => bigEnough(s, longSide))
     .sort((a, b) => (b.confidence ?? 0) - (a.confidence ?? 0))
     .slice(0, max)
     .sort((a, b) => a.x1 + a.x2 - (b.x1 + b.x2) || a.y1 - b.y1)
     .map((s, i) => ({ ...s, n: i + 1 }));
+}
+
+/**
+ * Each place's sign, from the model's answer: the box it named, when that box
+ * was drawn and no other place named it too (two names on one box is a
+ * mix-up, and neither gets the picture).
+ */
+export function signsForPlaces(seen: { id: string; box?: number }[], boxes: SignBox[]): Map<string, SignBox> {
+  const claims = new Map<number, number>();
+  for (const x of seen) if (x.box !== undefined) claims.set(x.box, (claims.get(x.box) ?? 0) + 1);
+  const out = new Map<string, SignBox>();
+  for (const x of seen) {
+    if (x.box === undefined || claims.get(x.box) !== 1) continue;
+    const box = boxes.find((b) => b.n === x.box);
+    if (box) out.set(x.id, box);
+  }
+  return out;
 }
 
 /** The number's size on a photo of this height: small enough not to cover a neighbouring sign. */
