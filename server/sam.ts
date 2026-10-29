@@ -12,6 +12,13 @@ import { resolveModelApiKey, type EnvMap } from "./keys.js";
 export const META_API_BASE = "https://api.meta.ai/v1";
 export const SAM_MODEL = "sam-3.1";
 export const SIGN_PROMPT = "shop sign";
+/** The phrases a request may ask for instead (one concept per request): for checking what SAM finds on real streets. */
+export const SIGN_PROMPTS = ["shop sign", "sign", "signboard", "storefront"] as const;
+export type SignPrompt = (typeof SIGN_PROMPTS)[number];
+
+export function isSignPrompt(value: unknown): value is SignPrompt {
+  return typeof value === "string" && (SIGN_PROMPTS as readonly string[]).includes(value);
+}
 /** At most this many signs go back, the most certain first. */
 export const MAX_SIGNS = 24;
 
@@ -99,7 +106,8 @@ export function signsFromSamText(text: string, max = MAX_SIGNS): SamSigns {
 export async function signsWithSam(
   imageDataUrl: string,
   deps: { env?: EnvMap; fetchImpl?: typeof fetch; now?: () => number; timeoutMs?: number } = {},
-): Promise<SamSigns & { latencyMs: number; model: string; prompt: string }> {
+  prompt: SignPrompt = SIGN_PROMPT,
+): Promise<SamSigns & { latencyMs: number; model: string; prompt: string; rawChars: number }> {
   const key = resolveModelApiKey(deps.env ?? process.env);
   if (!key) throw new SamError(503, "MODEL_API_KEY is not configured");
   const fetchImpl = deps.fetchImpl ?? fetch;
@@ -117,7 +125,7 @@ export async function signsWithSam(
             type: "message",
             role: "user",
             content: [
-              { type: "input_text", text: SIGN_PROMPT },
+              { type: "input_text", text: prompt },
               { type: "input_image", image_url: imageDataUrl },
             ],
           },
@@ -138,6 +146,7 @@ export async function signsWithSam(
       .catch(() => undefined);
     throw new SamError(res.status === 429 ? 429 : 502, `SAM 3.1 answered ${res.status}${typeof detail === "string" ? `: ${detail.slice(0, 160)}` : ""}`);
   }
-  const body = (await res.json()) as unknown;
-  return { ...signsFromSamText(outputText(body)), latencyMs: now() - started, model: SAM_MODEL, prompt: SIGN_PROMPT };
+  const text = outputText((await res.json()) as unknown);
+  // rawChars tells an empty answer (no match) from an answer that did not read.
+  return { ...signsFromSamText(text), latencyMs: now() - started, model: SAM_MODEL, prompt, rawChars: text.length };
 }

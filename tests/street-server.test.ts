@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { latLonToTile } from "../src/data/mvt.js";
-import { clipLine, shopsFromTile, streetsFromTile } from "../src/street/tiles.js";
+import { clipLine, highwayOf, shopsFromTile, streetsFromTile } from "../src/street/tiles.js";
 import { SYNTHETIC_CAPTURE, SYNTHETIC_STREET_NAME, syntheticShopsJson, syntheticWaysJson } from "../src/street/synthetic.js";
 import { clearStreetCachesForTests, lookupStreet, MAX_PLACES, tilesAhead } from "../server/street-sources.js";
 import { localFrame, toLatLon } from "../src/geo/enu.js";
@@ -250,6 +250,22 @@ describe("street tiles (SYNTHETIC)", () => {
     expect(clipLine([{ x: -10, y: 10 }, { x: 50, y: 10 }, { x: 50, y: 200 }], 100)).toEqual([
       [{ x: 0, y: 10 }, { x: 50, y: 10 }, { x: 50, y: 100 }],
     ]);
+  });
+
+  it("takes a pedestrian shopping street as a street, and leaves other paths out", () => {
+    const roads = layer(
+      "transportation_name",
+      ["name", "class", "subclass"],
+      ["Tile Promenade", "path", "pedestrian", "Tile Trail", "footway"],
+      [
+        { type: 2, tags: [0, 0, 1, 1, 2, 2], geometry: lineGeometry([[px, py + 40], [px, -500]]) },
+        { type: 2, tags: [0, 3, 1, 1, 2, 4], geometry: lineGeometry([[px + 30, py + 40], [px + 30, -500]]) },
+      ],
+    );
+    const found = streetsFromTile(new Uint8Array(lenDelim(3, roads)), 14, tile.x, tile.y);
+    expect(found.map((r) => [r.name, r.highway])).toEqual([["Tile Promenade", "pedestrian"]]);
+    expect(highwayOf("minor", "residential")).toBe("residential");
+    expect(highwayOf("path", "cycleway")).toBe("");
   });
 
   it("covers a strip ahead of the camera", () => {

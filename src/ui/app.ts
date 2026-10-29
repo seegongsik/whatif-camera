@@ -29,6 +29,7 @@ import {
 import { downloadJson, parsePreset, presetFrom, sceneFromPreset } from "../preset/preset.js";
 import { Player, pickRecordingType } from "../scene/player.js";
 import { syntheticScene } from "../synthetic/scene.js";
+import { FAMOUS_STREETS, nearestStreet, orderForZone } from "../street/famous.js";
 import { addFieldShot, clearFieldLog, fieldLogText, fieldShot, readFieldLog, type FieldShot } from "../street/field-log.js";
 import type { StreetAhead } from "../street/street.js";
 import { syntheticStreet } from "../street/synthetic.js";
@@ -41,17 +42,6 @@ import { topView } from "./topview.js";
 type Status = { basetenApiKeyConfigured: boolean; modelApiKeyConfigured: boolean } | null;
 
 const params = new URLSearchParams(location.search);
-
-/**
- * Streets to fly down from the map alone, without a photo: a point near the
- * street, the direction to look and the street's name on the map (which
- * picks it out when the point is a little off). Starting points, not survey marks.
- */
-const FAMOUS_STREETS = [
-  { label: "Gangnam-daero, Seoul (north from Gangnam Station)", lat: 37.4985, lon: 127.0274, headingDeg: 343, street: "강남대로" },
-  { label: "Fifth Avenue, New York (north from 42nd Street)", lat: 40.7536, lon: -73.9807, headingDeg: 29, street: "5th Avenue" },
-  { label: "Robson Street, Vancouver (north-west from Burrard)", lat: 49.2838, lon: -123.1233, headingDeg: 315, street: "Robson Street" },
-];
 
 /** The eight directions to pick from when the phone has no compass, as they sit around you on a map. */
 const DIRECTIONS: ([string, number] | null)[] = [
@@ -223,7 +213,7 @@ export class App {
           h("button", { class: "ghost", onclick: () => this.showStreet(syntheticStreet()) }, "Synthetic street"),
         ),
         h("p", { class: "muted small", text: "Or fly down a street from the map alone:" }),
-        h("div", { class: "street-places" }, ...FAMOUS_STREETS.map((s) => h("button", { onclick: () => void this.streetFor(s) }, s.label))),
+        h("div", { class: "street-places" }, ...orderForZone(FAMOUS_STREETS, timeZone()).map((s) => h("button", { onclick: () => void this.streetFor(s) }, s.label))),
         this.fieldLogBox(readFieldLog()),
         photoInput,
         h("p", { class: "muted small", text: "Streets © OpenStreetMap contributors (ODbL); places © Overture Maps Foundation (CDLA-Permissive-2.0). Places change; the map may be out of date." }),
@@ -330,7 +320,10 @@ export class App {
   }
 
   private openShow(at: { lat: number; lon: number; headingDeg: number }, photo?: HTMLCanvasElement, capture?: CaptureMeta, onRetry?: () => void): StreetShow {
-    const show = new StreetShow({ origin: { lat: at.lat, lon: at.lon }, headingDeg: at.headingDeg, photo, capture, onClose: () => this.home(), onRetry });
+    // Where no street (or no place) is found, the nearest famous street is one tap away.
+    const near = nearestStreet(FAMOUS_STREETS, at);
+    const elsewhere = near ? { label: near.short, go: () => void this.streetFor(near) } : undefined;
+    const show = new StreetShow({ origin: { lat: at.lat, lon: at.lon }, headingDeg: at.headingDeg, photo, capture, onClose: () => this.home(), onRetry, elsewhere });
     this.screen(show.element);
     this.streetShow = show;
     show.start();
@@ -765,5 +758,14 @@ export class App {
         factsPanel(input, spec, plan, planNote),
       ),
     );
+  }
+}
+
+/** The device's time zone, which orders the starting points; nothing when the browser does not say. */
+function timeZone(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch {
+    return undefined;
   }
 }

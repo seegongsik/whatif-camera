@@ -11,7 +11,7 @@ import { lookupFootprints, UpstreamError } from "./footprint-sources.js";
 import { SparkError } from "./spark.js";
 import { lookupStreet } from "./street-sources.js";
 import { questWithSpark, signsWithSpark } from "./street-spark.js";
-import { SamError, signsWithSam } from "./sam.js";
+import { isSignPrompt, SamError, SIGN_PROMPT, SIGN_PROMPTS, signsWithSam } from "./sam.js";
 import { SHOP_CATEGORIES, type ShopCategory } from "../src/street/osm.js";
 import { isQuestTheme, type QuestPlace } from "../src/street/quest.js";
 import type { SpotPlace } from "../src/street/spotted.js";
@@ -172,18 +172,20 @@ export async function handleSigns(request: Request, deps: Deps = {}): Promise<Re
   }
 }
 
-/** POST {image}: every shop sign in the photo, found by SAM 3.1, as boxes and outlines. */
+/** POST {image, prompt?}: every shop sign in the photo, found by SAM 3.1, as boxes and outlines. */
 export async function handleSam(request: Request, deps: Deps = {}): Promise<Response> {
   if (request.method !== "POST") return json({ error: "use POST" }, 405);
   const body = await jsonBody(request);
   if (!body) return json({ error: "body must be a JSON object" }, 400);
   const problem = imageError(body.image);
   if (problem) return json({ error: problem }, 400);
+  const prompt = body.prompt === undefined ? SIGN_PROMPT : isSignPrompt(body.prompt) ? body.prompt : null;
+  if (prompt === null) return json({ error: `prompt must be one of: ${SIGN_PROMPTS.join(", ")}` }, 400);
   const env = deps.env ?? process.env;
   if (!keyPresence(env).modelApiKeyConfigured) return json({ error: "MODEL_API_KEY is not configured; the page goes on without the cut-outs" }, 503);
   if (!takeCall("sam", (deps.now ?? Date.now)(), env)) return json({ error: "daily SAM calls for this server instance are used up" }, 429);
   try {
-    return json(await signsWithSam(body.image as string, deps));
+    return json(await signsWithSam(body.image as string, deps, prompt));
   } catch (error) {
     if (error instanceof SamError) return json({ error: error.message }, error.status === 503 || error.status === 429 ? error.status : 502);
     return json({ error: `segmentation failed: ${error instanceof Error ? error.message : String(error)}` }, 502);

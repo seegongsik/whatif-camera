@@ -45,6 +45,7 @@ describe("SAM 3.1 shop signs", () => {
     const result = await signsWithSam(IMAGE, { env: { MODEL_API_KEY: "test-key" }, fetchImpl, now: () => 0 });
     expect(result.signs).toHaveLength(2);
     expect(result.model).toBe("sam-3.1");
+    expect(result.rawChars).toBe(SAMPLE.length);
     expect(sent!.url).toBe("https://api.meta.ai/v1/responses");
     const body = JSON.parse(String(sent!.init.body));
     expect(body.model).toBe("sam-3.1");
@@ -72,11 +73,14 @@ describe("SAM 3.1 shop signs", () => {
     const post = (body: unknown) => new Request("http://x/api/sam", { method: "POST", body: JSON.stringify(body) });
     expect((await handleSam(post({ image: IMAGE }), { env: {} })).status).toBe(503);
     expect((await handleSam(post({ image: "not a picture" }), { env: { MODEL_API_KEY: "k" } })).status).toBe(400);
+    expect((await handleSam(post({ image: IMAGE, prompt: "segment the people" }), { env: { MODEL_API_KEY: "k" } })).status).toBe(400);
     const fetchImpl = (async () => Response.json(reply(SAMPLE))) as unknown as typeof fetch;
     const env = { MODEL_API_KEY: "k", DAILY_SAM_CALL_CAP: "1" };
-    const ok = await handleSam(post({ image: IMAGE }), { env, fetchImpl });
+    const ok = await handleSam(post({ image: IMAGE, prompt: "signboard" }), { env, fetchImpl });
     expect(ok.status).toBe(200);
-    expect(((await ok.json()) as { signs: unknown[] }).signs).toHaveLength(2);
+    const answer = (await ok.json()) as { signs: unknown[]; prompt: string };
+    expect(answer.signs).toHaveLength(2);
+    expect(answer.prompt).toBe("signboard");
     expect((await handleSam(post({ image: IMAGE }), { env, fetchImpl })).status).toBe(429);
   });
 });

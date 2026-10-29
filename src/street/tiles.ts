@@ -60,6 +60,17 @@ export function clipLine(line: P[], size: number): P[][] {
 /** OpenMapTiles road classes that match an OSM highway value. */
 const CLASS_TO_HIGHWAY: Record<string, string> = { minor: "residential" };
 
+/**
+ * The OSM highway value of a tile's road. A pedestrian street (a shopping
+ * street closed to cars, such as Santa Monica's Third Street Promenade)
+ * comes as class "path" with subclass "pedestrian"; other paths (footways,
+ * cycleways, steps) are not streets.
+ */
+export function highwayOf(cls: string, subclass: string): string {
+  if (cls === "path") return subclass === "pedestrian" ? "pedestrian" : "";
+  return CLASS_TO_HIGHWAY[cls] ?? cls;
+}
+
 export function streetsFromTile(tile: Uint8Array, z: number, tx: number, ty: number): StreetWay[] {
   const layer = layerFeatures(tile, "transportation_name");
   if (!layer) return [];
@@ -69,7 +80,7 @@ export function streetsFromTile(tile: Uint8Array, z: number, tx: number, ty: num
     const name = typeof f.props.name === "string" ? f.props.name : undefined;
     const ref = typeof f.props.ref === "string" ? f.props.ref : undefined;
     const cls = typeof f.props.class === "string" ? f.props.class : "";
-    const highway = CLASS_TO_HIGHWAY[cls] ?? cls;
+    const highway = highwayOf(cls, typeof f.props.subclass === "string" ? f.props.subclass : "");
     if (!(STREET_HIGHWAYS as readonly string[]).includes(highway) || (!name && !ref)) return;
     let part = 0;
     for (const line of geometryParts(f.geometry)) {
