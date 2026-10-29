@@ -199,11 +199,18 @@ main.camera video {
   object-fit: cover;
 }
 
-.hud {
+/* The readout and, under it, any advice: stacked so a long readout never covers the advice. */
+.camera-top {
   position: absolute;
   top: max(12px, env(safe-area-inset-top));
   left: 12px;
   right: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hud {
   color: #fff;
   font-weight: 600;
   font-size: 0.9rem;
@@ -211,6 +218,30 @@ main.camera video {
   background: rgba(0, 0, 0, 0.45);
   border-radius: 999px;
   padding: 8px 12px;
+}
+
+/* Under the readout: the setting to change when location is refused or only a rough area. */
+.camera-help {
+  margin: 0;
+  color: #fff;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  background: rgba(0, 0, 0, 0.72);
+  border-radius: 14px;
+  padding: 10px 12px;
+}
+
+/* Opened inside a chat or social app's browser. */
+.in-app {
+  margin: 16px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 14px;
+  background: var(--card);
+}
+
+.in-app p {
+  margin: 6px 0 10px;
 }
 
 .level {

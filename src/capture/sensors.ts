@@ -37,6 +37,8 @@ export class Sensors {
   private watchId: number | null = null;
   private readonly listeners: (() => void)[] = [];
   positionError: string | null = null;
+  /** GeolocationPositionError's code: 1 refused, 2 unavailable, 3 timed out. */
+  positionErrorCode: number | null = null;
   /** Motion access was refused; the capture then reads tilt from the photo and asks for the building on the map. */
   motionDenied = false;
   onChange: (() => void) | null = null;
@@ -78,10 +80,12 @@ export class Sensors {
       (p) => {
         this.position = { lat: p.coords.latitude, lon: p.coords.longitude, accuracyM: p.coords.accuracy, at: p.timestamp };
         this.positionError = null;
+        this.positionErrorCode = null;
         this.onChange?.();
       },
       (err) => {
         this.positionError = err.message || "Location is not available.";
+        this.positionErrorCode = err.code;
         this.onChange?.();
       },
       { enableHighAccuracy: true, maximumAge: 0, timeout: 30_000 },
