@@ -29,6 +29,7 @@ import {
 import { downloadJson, parsePreset, presetFrom, sceneFromPreset } from "../preset/preset.js";
 import { Player, pickRecordingType } from "../scene/player.js";
 import { syntheticScene } from "../synthetic/scene.js";
+import { FAMOUS_STREETS, nearestStreet, orderForZone } from "../street/famous.js";
 import { addFieldShot, clearFieldLog, fieldLogText, fieldShot, readFieldLog, type FieldShot } from "../street/field-log.js";
 import type { StreetAhead } from "../street/street.js";
 import { syntheticStreet } from "../street/synthetic.js";
@@ -41,17 +42,6 @@ import { topView } from "./topview.js";
 type Status = { basetenApiKeyConfigured: boolean; modelApiKeyConfigured: boolean } | null;
 
 const params = new URLSearchParams(location.search);
-
-/**
- * Streets to fly down from the map alone, without a photo: a point near the
- * street, the direction to look and the street's name on the map (which
- * picks it out when the point is a little off). Starting points, not survey marks.
- */
-const FAMOUS_STREETS = [
-  { label: "Gangnam-daero, Seoul (north from Gangnam Station)", lat: 37.4985, lon: 127.0274, headingDeg: 343, street: "강남대로" },
-  { label: "Fifth Avenue, New York (north from 42nd Street)", lat: 40.7536, lon: -73.9807, headingDeg: 29, street: "5th Avenue" },
-  { label: "Robson Street, Vancouver (north-west from Burrard)", lat: 49.2838, lon: -123.1233, headingDeg: 315, street: "Robson Street" },
-];
 
 /** The eight directions to pick from when the phone has no compass, as they sit around you on a map. */
 const DIRECTIONS: ([string, number] | null)[] = [
@@ -206,12 +196,13 @@ export class App {
     this.screen(
       h(
         "main",
-        { class: "home" },
+        { class: "home landing" },
         h("div", { class: "home-kicker", text: "ONE PHOTO · THE NEXT 5 KM" }),
         h("h1", {}, "What's Ahead", h("span", { class: "accent", text: "?" })),
+        heroClip(),
         h("p", {
           class: "lead",
-          text: "Point your phone down a street and take one photo. A light runs 5 km down the street, dotting every place the map knows at its distance and side, and stops at the landmarks. Then tap Restaurants, Cafés, Shops… to send it down the street again for just those.",
+          text: "Point your phone down a street and take one photo. A light runs 5 km ahead, dots every place the map knows on its side of the street, and stops at the landmarks.",
         }),
         error ? h("p", { class: "error", text: error }) : null,
         this.inAppNote(),
@@ -222,8 +213,25 @@ export class App {
           h("button", { onclick: () => photoInput.click() }, "Use a photo"),
           h("button", { class: "ghost", onclick: () => this.showStreet(syntheticStreet()) }, "Synthetic street"),
         ),
-        h("p", { class: "muted small", text: "Or fly down a street from the map alone:" }),
-        h("div", { class: "street-places" }, ...FAMOUS_STREETS.map((s) => h("button", { onclick: () => void this.streetFor(s) }, s.label))),
+        h("div", { class: "home-section" }, h("span", { text: "DEMO STREETS" }), h("span", { class: "home-section-note", text: "from the map, no photo" })),
+        h(
+          "ol",
+          { class: "demo-streets" },
+          ...orderForZone(FAMOUS_STREETS, timeZone()).map((s, i) =>
+            h(
+              "li",
+              {},
+              h(
+                "button",
+                { "aria-label": s.label, title: s.label, onclick: () => void this.streetFor(s) },
+                h("span", { class: "demo-n", text: String(i + 1).padStart(2, "0") }),
+                h("span", { class: "demo-name", text: s.name }),
+                h("span", { class: "demo-city", text: s.city }),
+                h("span", { class: "demo-go", "aria-hidden": "true", text: "›" }),
+              ),
+            ),
+          ),
+        ),
         this.fieldLogBox(readFieldLog()),
         photoInput,
         h("p", { class: "muted small", text: "Streets © OpenStreetMap contributors (ODbL); places © Overture Maps Foundation (CDLA-Permissive-2.0). Places change; the map may be out of date." }),
@@ -330,7 +338,10 @@ export class App {
   }
 
   private openShow(at: { lat: number; lon: number; headingDeg: number }, photo?: HTMLCanvasElement, capture?: CaptureMeta, onRetry?: () => void): StreetShow {
-    const show = new StreetShow({ origin: { lat: at.lat, lon: at.lon }, headingDeg: at.headingDeg, photo, capture, onClose: () => this.home(), onRetry });
+    // Where no street (or no place) is found, the nearest famous street is one tap away.
+    const near = nearestStreet(FAMOUS_STREETS, at);
+    const elsewhere = near ? { label: near.short, go: () => void this.streetFor(near) } : undefined;
+    const show = new StreetShow({ origin: { lat: at.lat, lon: at.lon }, headingDeg: at.headingDeg, photo, capture, onClose: () => this.home(), onRetry, elsewhere });
     this.screen(show.element);
     this.streetShow = show;
     show.start();
@@ -766,4 +777,46 @@ export class App {
       ),
     );
   }
+}
+
+/** The device's time zone, which orders the starting points; nothing when the browser does not say. */
+function timeZone(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The landing's moving picture: a recording of the app itself (the photo is
+ * a drawn street; the street, its places and landmarks are real map data,
+ * credited in the clip). It ends on a tap on a place and its Instagram link,
+ * and a caption card with where that link goes. Still, on its poster, when
+ * motion is reduced.
+ */
+function heroClip(): HTMLElement {
+  const still = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const video = h("video", {
+    class: "hero-clip",
+    src: "/demo/whats-ahead-loop.mp4",
+    poster: "/demo/whats-ahead-loop.jpg",
+    "aria-label": "Recording of the app: a photo down 7th Avenue from Times Square, a light running the street and stopping at its landmarks, then a tap on a restaurant and on its Instagram link",
+  });
+  // Muted and inline, as attributes too, so phones let it play by itself.
+  for (const name of ["muted", "playsinline", "loop"]) video.setAttribute(name, "");
+  video.muted = true;
+  video.playsInline = true;
+  video.loop = true;
+  if (!still) {
+    video.autoplay = true;
+    void video.play().catch(() => undefined);
+  }
+  // The label sits above the picture, clear of the app's own title in it.
+  return h(
+    "figure",
+    { class: "hero" },
+    h("figcaption", { class: "hero-tag" }, h("span", {}, h("i"), "DEMO · FROM TIMES SQUARE, NEW YORK"), h("span", { class: "hero-tag-note", text: "real map data" })),
+    h("div", { class: "hero-frame" }, video),
+  );
 }

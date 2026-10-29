@@ -84,6 +84,8 @@ export type StreetShowOptions = {
   capture?: CaptureMeta;
   onClose: () => void;
   onRetry?: () => void;
+  /** A busier street to fly down when none (or no place) is found here: the nearest famous one. */
+  elsewhere?: { label: string; go: () => void };
 };
 
 /** What the light is showing: every place (null), one kind of place, or a quest's stops. */
@@ -270,7 +272,10 @@ export class StreetShow {
     this.questSheet.element.classList.add("show-sheet");
     this.element.append(this.questSheet.element);
     this.skipEl.classList.remove("hidden");
-    if (street.shops.length === 0) this.note("The map has no places along this street yet.", 6000);
+    if (street.shops.length === 0) {
+      this.note("The map has no places along this street yet.", 6000);
+      this.offerElsewhere();
+    }
     if (this.options.photo) void this.checkSigns();
   }
 
@@ -1346,6 +1351,7 @@ export class StreetShow {
           "div",
           { class: "show-console-actions" },
           this.options.onRetry ? h("button", { class: "show-pill", onclick: this.options.onRetry }, "Try again") : null,
+          this.options.elsewhere ? h("button", { class: "show-pill", onclick: this.options.elsewhere.go }, `Fly down ${this.options.elsewhere.label}`) : null,
           h("button", { class: "show-pill ghost", onclick: this.options.onClose }, "Home"),
         ),
       );
@@ -1400,7 +1406,7 @@ export class StreetShow {
       h("button", { class: "show-pill", onclick: () => this.beginRun(focus, this.clock()) }, "Replay"),
       h("button", { class: "show-pill ghost", "aria-label": "End the quest", onclick: () => this.endQuest(true) }, "×"),
     );
-    this.questBarEl.classList.remove("hidden");
+    this.questBarEl.classList.remove("hidden", "offer");
     this.beginRun(focus, this.clock());
     this.measureInsets();
   }
@@ -1499,6 +1505,19 @@ export class StreetShow {
     ];
     this.cardEl.replaceChildren(...parts.filter((x): x is Node => x !== null));
     this.cardEl.classList.remove("hidden");
+  }
+
+  /** An empty street: the nearest famous street, in the bar above the buttons. */
+  private offerElsewhere(): void {
+    const elsewhere = this.options.elsewhere;
+    if (!elsewhere) return;
+    this.questBarEl.replaceChildren(
+      h("div", { class: "show-quest-text" }, h("strong", { text: "Nothing mapped along this street yet" }), h("span", { text: "See the show on a busy street instead" })),
+      h("button", { class: "show-pill", onclick: elsewhere.go }, `Fly down ${elsewhere.label}`),
+    );
+    this.questBarEl.classList.add("offer");
+    this.questBarEl.classList.remove("hidden");
+    this.measureInsets();
   }
 
   private closeCard(): void {
