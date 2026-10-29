@@ -11,9 +11,9 @@ import type { ShopAhead } from "./ahead.js";
 import type { Quest } from "./quest.js";
 import { pointAt } from "./route.js";
 import { drawTag, glow, MONO, rgba, SANS, tagMeasure, type TagStyle } from "./show-draw.js";
-import { dotSpot, groupOf, GROUPS, kindWord, LIGHT, overviewPose, pickLandmarks, projector, QUEST_GOLD, sampleRoute, type Pose, type Projected } from "./show-plan.js";
+import { dotSpot, groupOf, GROUPS, kindWord, LIGHT, overviewPose, pickLandmarks, projector, QUEST_GOLD, sampleRoute, screenSide, type Pose, type Projected } from "./show-plan.js";
 import { distanceText } from "./signs.js";
-import { layoutLabels, type LabelInput } from "./street-labels.js";
+import { layoutLabels, roadSpan, type LabelInput, type ScreenPoint } from "./street-labels.js";
 import { localRoute, type StreetAhead } from "./street.js";
 
 const W = 1080;
@@ -128,7 +128,8 @@ function drawStreet(ctx: CanvasRenderingContext2D, input: ShareInput, top: numbe
   const shown = line.points.filter((_, i) => line.along[i] <= limit);
   const step = Math.max(1, Math.floor(shown.length / 120));
   const fitPoints = [...shown.filter((_, i) => i % step === 0), shown[shown.length - 1], { x: 0, y: 0 }];
-  const pose = overviewPose(fitPoints, view, { top: top + 190, bottom: H - bottom + 70, left: 150, right: 150 });
+  // The street down the middle, with room for a column of names on each side.
+  const pose = overviewPose(fitPoints, view, { top: top + 60, bottom: H - bottom + 70, left: 300, right: 300 });
   const project = projector(pose, view);
   drawGrid(ctx, project, pose, top, bottom);
 
@@ -190,39 +191,49 @@ function drawStreet(ctx: CanvasRenderingContext2D, input: ShareInput, top: numbe
     ctx.textAlign = "left";
   }
 
-  // Beams and names: the landmarks, or the quest's stops in order.
+  // Rings and names beside the street on each place's side: the landmarks, or the quest's stops in order.
+  const road: ScreenPoint[][] = [];
+  let run: ScreenPoint[] = [];
+  for (const q of pts) {
+    if (q) run.push({ x: q.x, y: q.y });
+    else if (run.length > 0) {
+      road.push(run);
+      run = [];
+    }
+  }
+  if (run.length > 0) road.push(run);
   const picks = quest ? [...quest.stops].sort((a, b) => a.s - b.s) : pickLandmarks(street.shops, street.route.length, street.name);
   const inputs: LabelInput<TagStyle>[] = [];
-  ctx.lineCap = "round";
   for (const shop of picks) {
-    const spot = dotSpot(route, shop);
-    const base = project(spot);
-    if (!base) continue;
+    const q = project(dotSpot(route, shop));
+    if (!q) continue;
     const color = quest ? QUEST_GOLD : groupOf(shop.category).color;
-    const tipY = base.y - 70;
-    const beam = ctx.createLinearGradient(0, base.y, 0, tipY);
-    beam.addColorStop(0, rgba(color, 0.95));
-    beam.addColorStop(1, rgba(color, 0));
-    ctx.strokeStyle = beam;
+    ctx.strokeStyle = rgba(color, 0.9);
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.moveTo(base.x, base.y);
-    ctx.lineTo(base.x, tipY);
+    ctx.arc(q.x, q.y, 14, 0, Math.PI * 2);
     ctx.stroke();
     inputs.push({
       key: shop.id,
-      x: base.x,
-      y: tipY,
-      ahead: base.depth,
+      x: q.x,
+      y: q.y,
+      side: screenSide(project, route, shop),
+      priority: q.depth,
       name: shop.name,
       detail: `${distanceText(shop.s)} · ${kindWord(shop.kind)}`.toUpperCase(),
       item: { color, number: quest ? quest.stops.indexOf(shop) + 1 : undefined },
       font: 26,
     });
   }
+  const area = { left: 40, top: top + 10, right: W - 40, bottom: bottom - 10 };
   const end = project(pointAt(route, route.length).at);
-  if (end) inputs.push({ key: "end", x: end.x, y: end.y - 10, ahead: 1e9, name: distanceText(route.length), detail: street.route.length < 4990 ? "THE STREET ENDS" : "END OF ROUTE", item: { color: "#ffffff", end: true }, font: 22 });
-  const placed = layoutLabels(inputs, tagMeasure(ctx), { left: 40, top: top + 10, right: W - 40, bottom: bottom - 10 }, 10);
+  if (end) {
+    const span = roadSpan(road, end.y - 40, end.y + 40);
+    const side = area.right - (span?.max ?? end.x) >= (span?.min ?? end.x) - area.left ? "right" : "left";
+    inputs.push({ key: "end", x: end.x, y: end.y, side, priority: 1e9, name: distanceText(route.length), detail: street.route.length < 4990 ? "THE STREET ENDS" : "END OF ROUTE", item: { color: "#ffffff", end: true }, font: 22 });
+  }
+  const blocked = you ? [{ x: you.x - 24, y: you.y - 18, w: 48, h: 70 }] : [];
+  const placed = layoutLabels(inputs, tagMeasure(ctx), { ...area, blocked }, road, 10);
   for (const label of placed) drawTag(ctx, label);
   ctx.restore();
 }

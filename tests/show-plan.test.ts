@@ -21,6 +21,7 @@ import {
   radarPose,
   REVEAL_PACE,
   sampleRoute,
+  screenSide,
   streetCores,
   type View,
 } from "../src/street/show-plan.js";
@@ -203,6 +204,18 @@ describe("the camera", () => {
 });
 
 describe("places in the picture", () => {
+  it("get their tags on the screen side that matches their side of the street", () => {
+    const route = localRoute(syntheticStreet());
+    // Looking north, up the street: its left is the screen's left.
+    const up = { x: 0, y: 300, yawDeg: 0, pitchDeg: 50, distance: 800 };
+    const alongUp = (p: { x: number; y: number }) => project(up, view, p);
+    expect(screenSide(alongUp, route, { s: 300, side: "left" })).toBe("left");
+    expect(screenSide(alongUp, route, { s: 300, side: "right" })).toBe("right");
+    // Looking south, the street comes down the screen: its left is the screen's right.
+    const down = { ...up, yawDeg: 180 };
+    expect(screenSide((p) => project(down, view, p), route, { s: 300, side: "left" })).toBe("right");
+  });
+
   it("stand beside the street on their side, neither on the line nor far off", () => {
     expect(dotOffset(shop(0, "a", "x", { offset: 2, side: "right" }))).toBe(8);
     expect(dotOffset(shop(0, "a", "x", { offset: -60, side: "left" }))).toBe(-24);

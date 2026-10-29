@@ -50,52 +50,56 @@ export function tagMeasure(ctx: CanvasRenderingContext2D): (text: string, size: 
 }
 
 /**
- * A name tag: dark glass with a rim in the place's colour, its name, and
- * distance and kind below; laid out by layoutLabels with the same font, so
- * the padding (9 px at 13 px type) matches.
+ * A name tag beside the street: a leader line from the place, dark glass
+ * with a rim in the place's colour, the name, and distance and kind below.
+ * The colour mark and the text face the street, so a tag on the left
+ * reads from its right edge. Laid out by layoutLabels with the same font,
+ * so the padding (9 px at 13 px type) matches.
  */
 export function drawTag(ctx: CanvasRenderingContext2D, label: PlacedLabel<TagStyle>): void {
   const { box, item, font } = label;
   const scale = font / 13;
   const pad = 9 * scale;
-  if (label.lifted) {
-    ctx.strokeStyle = rgba(item.color, 0.6);
-    ctx.lineWidth = scale;
-    ctx.beginPath();
-    ctx.moveTo(label.x, label.y);
-    ctx.lineTo(Math.min(box.x + box.w - 10 * scale, Math.max(box.x + 10 * scale, label.x)), box.y + box.h);
-    ctx.stroke();
-  }
+  const left = label.side === "left";
+  const inner = left ? box.x + box.w : box.x;
+  ctx.strokeStyle = rgba(item.color, 0.65);
+  ctx.lineWidth = scale;
+  ctx.beginPath();
+  ctx.moveTo(label.x, label.y);
+  ctx.lineTo(inner, box.y + box.h / 2);
+  ctx.stroke();
   ctx.fillStyle = "rgba(6,9,14,0.86)";
   ctx.strokeStyle = rgba(item.color, item.end ? 0.35 : 0.7);
-  ctx.lineWidth = scale;
   ctx.beginPath();
   ctx.roundRect(box.x, box.y, box.w, box.h, 6 * scale);
   ctx.fill();
   ctx.stroke();
   const mark = font * 0.7;
+  // The colour mark (or the stop's number) sits on the side facing the street.
+  const markX = left ? box.x + box.w - pad - mark : box.x + pad;
   if (item.number) {
     ctx.fillStyle = item.color;
     ctx.beginPath();
-    ctx.arc(box.x + pad + mark / 2, box.y + box.h / 2, mark / 2 + scale, 0, Math.PI * 2);
+    ctx.arc(markX + mark / 2, box.y + box.h / 2, mark / 2 + scale, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = "#000";
     ctx.font = `800 ${Math.round(font * 0.72)}px ${SANS}`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(String(item.number), box.x + pad + mark / 2, box.y + box.h / 2 + 0.5 * scale);
+    ctx.fillText(String(item.number), markX + mark / 2, box.y + box.h / 2 + 0.5 * scale);
   } else {
     ctx.fillStyle = item.color;
-    ctx.fillRect(box.x + pad, box.y + 6 * scale, 2.5 * scale, box.h - 12 * scale);
+    ctx.fillRect(left ? markX + mark - 2.5 * scale : markX, box.y + 6 * scale, 2.5 * scale, box.h - 12 * scale);
   }
-  const tx = box.x + pad + mark + 6 * scale;
+  const tx = left ? markX - 6 * scale : markX + mark + 6 * scale;
   const top = box.y + 5 * scale;
-  ctx.textAlign = "left";
+  ctx.textAlign = left ? "right" : "left";
   ctx.textBaseline = "alphabetic";
   ctx.fillStyle = "#ffffff";
   ctx.font = `650 ${font}px ${SANS}`;
-  ctx.fillText(label.name, tx, top + font * 0.98);
+  label.lines.forEach((line, i) => ctx.fillText(line, tx, top + font * 0.98 + i * font * 1.2));
   ctx.fillStyle = item.end ? "rgba(255,255,255,0.6)" : item.color;
   ctx.font = `600 ${Math.round(font * 0.8)}px ${MONO}`;
-  ctx.fillText(label.detail, tx, top + font * 1.2 + font * 0.8);
+  ctx.fillText(label.detail, tx, top + font * 1.2 * label.lines.length + font * 0.8);
+  ctx.textAlign = "left";
 }

@@ -37,6 +37,7 @@ import {
   radarPose,
   REVEAL_PACE,
   sampleRoute,
+  screenSide,
   TOUR_FOLLOW,
   TOUR_PACE,
   type Group,
@@ -48,7 +49,7 @@ import {
 import { drawTag, glow, MONO, rgba, SANS, tagMeasure, type TagStyle } from "./show-draw.js";
 import { distanceText } from "./signs.js";
 import { spotPlaces, type Spotted } from "./spotted.js";
-import { layoutLabels, type LabelInput, type PlacedLabel } from "./street-labels.js";
+import { layoutLabels, roadSpan, type Box, type LabelInput, type PlacedLabel, type ScreenPoint } from "./street-labels.js";
 import { localRoute, type StreetAhead } from "./street.js";
 
 /** Shortest time the radar shows, so it reads even when the street comes back at once. */
@@ -66,11 +67,11 @@ const TOUR_LEAD_MS = 1000;
 const SETTLE_MS = 1800;
 /** A dot's ripple when the light reaches it. */
 const BIRTH_MS = 700;
-/** Height of a landmark's beam of light. */
-const BEAM_M = 55;
 /** Pixels per metre at which lines and dots are drawn at their base size. */
 const REF_PPM = 2;
 const FOV_DEG = 50;
+/** Room the ruler takes at the right edge. */
+const RULER_PX = 34;
 const COMPASS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
 
 export type StreetShowOptions = {
@@ -159,6 +160,7 @@ export class StreetShow {
   private view: View = { width: 1, height: 1, fovDeg: FOV_DEG };
   private insets = { top: 120, bottom: 170 };
   private labels: PlacedLabel<LabelItem>[] = [];
+  private roadOnScreen: ScreenPoint[][] = [];
   private selected: ShopAhead | null = null;
   private spotted = new Set<string>();
   private vignette: HTMLCanvasElement | null = null;
@@ -275,7 +277,7 @@ export class StreetShow {
       loaded: this.street !== null,
       focus: this.focus?.key ?? null,
       landmarks: this.landmarks.map((s) => s.name),
-      labels: this.labels.map((l) => l.name),
+      labels: this.labels.map((l) => l.lines.join(" ")),
     };
   }
 
@@ -290,7 +292,8 @@ export class StreetShow {
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     this.canvas.width = Math.round(width * dpr);
     this.canvas.height = Math.round(height * dpr);
-    this.view = { width, height, fovDeg: FOV_DEG };
+    // The street runs halfway between the left edge and the ruler, so both columns of tags get the same room.
+    this.view = { width, height, fovDeg: FOV_DEG, centerX: (width - RULER_PX) / 2 };
     this.vignette = null;
     this.measureInsets();
   };
@@ -320,8 +323,9 @@ export class StreetShow {
     const step = Math.max(1, Math.floor(line.length / 120));
     const pts = line.filter((_, i) => i % step === 0);
     pts.push(line[line.length - 1], { x: 0, y: 0 });
-    // Room above the far end for its beam and name, beside the rail on the right.
-    this.overview = overviewPose(pts, this.view, { top: this.insets.top + 90, bottom: this.insets.bottom + 24, left: 30, right: 56 });
+    // The street down the middle, with room for a column of tags on each side (and the rail on the right).
+    const side = Math.max(60, Math.round((this.view.width - RULER_PX) * 0.27));
+    this.overview = overviewPose(pts, this.view, { top: this.insets.top + 30, bottom: this.insets.bottom + 24, left: side, right: side + RULER_PX });
   }
 
   // ----- Time -----
@@ -739,6 +743,17 @@ export class StreetShow {
   private drawRoute(project: (p: EN, z?: number) => Projected | null, pose: Pose, head: number): void {
     const line = this.line!;
     const pts = line.points.map((p) => project(p));
+    // The whole street on the screen, behind the light and ahead of it: tags keep clear of it.
+    this.roadOnScreen = [];
+    let run: ScreenPoint[] = [];
+    for (const q of pts) {
+      if (q) run.push({ x: q.x, y: q.y });
+      else if (run.length > 0) {
+        this.roadOnScreen.push(run);
+        run = [];
+      }
+    }
+    if (run.length > 0) this.roadOnScreen.push(run);
     const color = this.focus?.color ?? LIGHT;
     const running = this.phase === "run";
     const ctx = this.ctx;
@@ -936,70 +951,85 @@ export class StreetShow {
     this.ctx.globalCompositeOperation = "source-over";
   }
 
-  /** Landmarks (or the tour's picks): a beam of light and a name, once the light has reached them. */
+  /**
+   * Landmarks (or the tour's picks), once the light has reached them: a
+   * flash and a ring at the place, and its name in a tag beside the street
+   * on the place's side, clear of the street's line and of the caption.
+   */
   private drawPicks(project: (p: EN, z?: number) => Projected | null, now: number, head: number): void {
     const ctx = this.ctx;
+    const route = this.route!;
     const picks = this.focus ? this.focus.picks : this.landmarks;
     const inputs: LabelInput<LabelItem>[] = [];
     const font = this.phase === "run" ? 13 : 12;
-    ctx.lineCap = "round";
+    const quest = this.focus?.quest;
+    const tag = (shop: ShopAhead, q: Projected, priority: number, color: string, number?: number): LabelInput<LabelItem> => ({
+      key: shop.id,
+      x: q.x,
+      y: q.y,
+      side: screenSide(project, route, shop),
+      priority,
+      name: `${this.spotted.has(shop.id) ? "✓ " : ""}${shop.name}`,
+      detail: `${distanceText(shop.s)} · ${kindWord(shop.kind)}`.toUpperCase(),
+      item: { shop, color, number },
+      font,
+    });
     picks.forEach((shop, i) => {
       const born = this.bornAt(shop) ?? (this.phase === "run" ? null : -Infinity);
       if (born === null || born > now) return;
-      const spot = this.spots.get(shop.id)!;
-      const base = project(spot);
-      if (!base) return;
-      const age = now - born;
-      const grow = easeInOut(age / 450);
-      const top = project(spot, BEAM_M * grow);
-      if (!top) return;
-      // At least a short beam when the camera is far out.
-      const tipY = Math.min(top.y, base.y - 26 * grow);
+      const q = project(this.spots.get(shop.id)!);
+      if (!q) return;
       const color = this.shopColor(shop);
-      const beam = ctx.createLinearGradient(0, base.y, 0, tipY);
-      beam.addColorStop(0, rgba(color, 0.95));
-      beam.addColorStop(1, rgba(color, 0));
+      const age = now - born;
       ctx.globalCompositeOperation = "lighter";
-      ctx.strokeStyle = beam;
-      ctx.lineWidth = 6;
-      ctx.globalAlpha = 0.3;
-      ctx.beginPath();
-      ctx.moveTo(base.x, base.y);
-      ctx.lineTo(top.x, tipY);
-      ctx.stroke();
-      ctx.lineWidth = 1.6;
-      ctx.globalAlpha = 1;
-      ctx.stroke();
-      ctx.strokeStyle = rgba(color, 0.8);
+      if (age < 700) {
+        const k = 1 - age / 700;
+        const size = 12 + 70 * k;
+        ctx.globalAlpha = k;
+        ctx.drawImage(glow(color, true), q.x - size / 2, q.y - size / 2, size, size);
+        ctx.globalAlpha = 1;
+      }
+      ctx.strokeStyle = rgba(color, 0.85);
       ctx.lineWidth = 1.2;
       ctx.beginPath();
-      ctx.arc(base.x, base.y, 6 + 2 * Math.sin(now / 260 + i), 0, Math.PI * 2);
+      ctx.arc(q.x, q.y, 6 + 2 * Math.sin(now / 260 + i), 0, Math.PI * 2);
       ctx.stroke();
       ctx.globalCompositeOperation = "source-over";
-      const quest = this.focus?.quest;
-      inputs.push({
-        key: shop.id,
-        x: top.x,
-        y: tipY,
-        ahead: top.depth,
-        name: `${this.spotted.has(shop.id) ? "✓ " : ""}${shop.name}`,
-        detail: `${distanceText(shop.s)} · ${kindWord(shop.kind)}`.toUpperCase(),
-        item: { shop, color, number: quest ? quest.stops.indexOf(shop) + 1 : undefined },
-        font,
-      });
+      // While the light runs, the place it reached last comes first.
+      inputs.push(tag(shop, q, this.phase === "run" ? -born : q.depth, color, quest ? quest.stops.indexOf(shop) + 1 : undefined));
     });
     if (this.selected && !picks.includes(this.selected)) {
       const q = project(this.spots.get(this.selected.id)!);
-      if (q) inputs.push({ key: this.selected.id, x: q.x, y: q.y - 10, ahead: -1, name: this.selected.name, detail: `${distanceText(this.selected.s)} · ${kindWord(this.selected.kind)}`.toUpperCase(), item: { shop: this.selected, color: this.shopColor(this.selected) }, font });
+      if (q) inputs.push(tag(this.selected, q, -Infinity, this.shopColor(this.selected)));
     }
+    const area = { left: 8, top: this.insets.top, right: this.view.width - RULER_PX, bottom: this.labelBottom() };
+    const blocked: Box[] = [];
+    const you = project({ x: 0, y: 0 });
+    // The "you" marker: its ring and the word under it.
+    if (you) blocked.push({ x: you.x - 12, y: you.y - 9, w: 24, h: 33 });
     if (this.phase !== "run" || head >= this.run!.light.to - 1) {
-      const route = this.route!;
       const end = project(pointAt(route, route.length).at);
-      const ends = this.street!.route.length < 4990;
-      if (end) inputs.push({ key: "end", x: end.x, y: end.y - 6, ahead: 1e9, name: distanceText(route.length), detail: ends ? "THE STREET ENDS" : "END OF ROUTE", item: { color: "#ffffff", end: true }, font: 11 });
+      if (end) {
+        // The street's end: on whichever side has more room.
+        const span = roadSpan(this.roadOnScreen, end.y - 20, end.y + 20);
+        const side = area.right - (span?.max ?? end.x) >= (span?.min ?? end.x) - area.left ? "right" : "left";
+        const ends = this.street!.route.length < 4990;
+        inputs.push({ key: "end", x: end.x, y: end.y, side, priority: 1e9, name: distanceText(route.length), detail: ends ? "THE STREET ENDS" : "END OF ROUTE", item: { color: "#ffffff", end: true }, font: 11 });
+      }
     }
-    this.labels = layoutLabels(inputs, tagMeasure(ctx), { left: 8, top: this.insets.top, right: this.view.width - 46, bottom: this.view.height - this.insets.bottom }, 10);
+    this.labels = layoutLabels(inputs, tagMeasure(ctx), { ...area, blocked }, this.roadOnScreen, 10);
     for (const label of this.labels) this.drawLabel(label, now);
+  }
+
+  /** The lowest a tag may reach: above the bottom bar, and above the caption while the light runs. */
+  private labelBottom(): number {
+    let bottom = this.view.height - this.insets.bottom;
+    if (this.phase === "run") {
+      const captionBottom = this.bottomEl.classList.contains("away") ? 64 : this.insets.bottom + 6;
+      const captionHeight = Math.max(96, this.captionEl.classList.contains("hidden") ? 0 : this.captionEl.offsetHeight);
+      bottom = Math.min(bottom, this.view.height - captionBottom - captionHeight - 8);
+    }
+    return bottom;
   }
 
   /** A tag pops in as the light reaches its place. */
@@ -1038,7 +1068,7 @@ export class StreetShow {
     const binH = (bottom - top) / bins;
     counts.forEach((n, i) => {
       if (n === 0) return;
-      const len = 20 * (n / most);
+      const len = 14 * (n / most);
       ctx.fillRect(x - 4 - len, bottom - (i + 1) * binH + 1, len, Math.max(1, binH - 2));
     });
     ctx.strokeStyle = "rgba(255,255,255,0.25)";
