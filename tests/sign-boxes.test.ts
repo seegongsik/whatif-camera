@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { badgeAt, badgeFont, numberSigns, readSamReply, type SamSignBox } from "../src/street/sign-boxes.js";
+import { badgeAt, badgeFont, bigEnough, numberSigns, readSamReply, signsForPlaces, type SamSignBox } from "../src/street/sign-boxes.js";
 import { MAX_SIGN_BOXES } from "../src/street/spotted.js";
 
 const sign = (x1: number, y1: number, x2: number, y2: number, confidence?: number): SamSignBox => ({ x1, y1, x2, y2, confidence, path: "M0 0L1 0L1 1Z", ox: x1, oy: y1 });
@@ -32,18 +32,47 @@ describe("SAM 3.1's signs on the photo the model reads", () => {
   });
 
   it("numbers the most certain signs from left to right, at most twelve", () => {
-    const boxes = numberSigns([sign(300, 10, 340, 30, 0.6), sign(10, 50, 60, 70, 0.9), sign(150, 40, 200, 60, 0.7)]);
+    const boxes = numberSigns([sign(300, 10, 340, 30, 0.6), sign(10, 50, 60, 70, 0.9), sign(150, 40, 200, 60, 0.7)], 1000);
     expect(boxes.map((b) => [b.n, b.x1])).toEqual([
       [1, 10],
       [2, 150],
       [3, 300],
     ]);
-    const many = Array.from({ length: 20 }, (_, i) => sign(i * 10, 0, i * 10 + 8, 8, i / 20));
-    const kept = numberSigns(many);
+    const many = Array.from({ length: 20 }, (_, i) => sign(i * 50, 0, i * 50 + 40, 16, i / 20));
+    const kept = numberSigns(many, 1000);
     expect(kept).toHaveLength(MAX_SIGN_BOXES);
     // The eight least certain (the leftmost here) are left out.
-    expect(kept[0].x1).toBe(80);
+    expect(kept[0].x1).toBe(400);
     expect(kept.map((b) => b.n)).toEqual(Array.from({ length: MAX_SIGN_BOXES }, (_, i) => i + 1));
+  });
+
+  it("numbers only signs big enough to read a name on", () => {
+    // On a 1024 px picture: at least 36 px wide and 14 px tall.
+    expect(bigEnough(sign(0, 0, 41, 14), 1024)).toBe(true);
+    expect(bigEnough(sign(0, 0, 29, 10), 1024)).toBe(false);
+    expect(bigEnough(sign(0, 0, 60, 12), 1024)).toBe(false);
+    // The two far signs that got each other's numbers on a test street: the smaller one is no longer numbered.
+    const boxes = numberSigns([sign(188, 263, 229, 277, 0.75), sign(202, 236, 231, 246, 0.69), sign(0, 695, 191, 763, 0.75)], 1024);
+    expect(boxes.map((b) => [b.n, b.x1])).toEqual([
+      [1, 0],
+      [2, 188],
+    ]);
+  });
+
+  it("gives a place its sign only when no other place named the same box", () => {
+    const boxes = numberSigns([sign(0, 0, 100, 40), sign(200, 0, 300, 40), sign(400, 0, 500, 40)], 1000);
+    const signs = signsForPlaces(
+      [
+        { id: "a", box: 1 },
+        { id: "b", box: 2 },
+        { id: "c", box: 2 },
+        { id: "d", box: 9 },
+        { id: "e" },
+      ],
+      boxes,
+    );
+    expect([...signs.keys()]).toEqual(["a"]);
+    expect(signs.get("a")?.x1).toBe(0);
   });
 
   it("puts a box's number just above it, or inside when the box touches the top", () => {
