@@ -18,13 +18,17 @@ import { pointAt, type Route } from "./route.js";
 import { drawShareCard, shareCard } from "./share-card.js";
 import {
   chaseTrack,
+  clampPose,
   dotSpot,
   easeInOut,
   easeOutBack,
+  focalPx,
   IMPACT_MS,
   impactPunch,
   FOLLOW,
   followPose,
+  groundAt,
+  groundScale,
   groupOf,
   GROUPS,
   histogram,
@@ -35,6 +39,7 @@ import {
   overviewPose,
   pickGroup,
   pickLandmarks,
+  poseKeeping,
   projector,
   QUEST_GOLD,
   radarPose,
@@ -43,6 +48,8 @@ import {
   screenSide,
   TOUR_FOLLOW,
   TOUR_PACE,
+  zoomAbout,
+  type ExploreLimits,
   type Group,
   type LightRun,
   type Pose,
@@ -64,6 +71,14 @@ const PHOTO_FOLD_MS = 800;
 const SAM_WAIT_MS = 3000;
 /** A sign's picture is cut from the full photo when it comes out at most this wide. */
 const CUT_MAX_PX = 420;
+/** Exploring closer than this many pixels per metre, every place in view gets its name (as room allows). */
+const NAMES_PPM = 0.3;
+/** How close a tap on a place brings the camera when it is farther out. */
+const TAP_PPM = 0.9;
+/** At most this many tags while exploring. */
+const EXPLORE_TAGS = 18;
+/** A finger has to move this far before a touch becomes a drag. */
+const DRAG_SLOP_PX = 6;
 /** The readings stay up this long once the street is in. */
 const HOLD_MS = 1000;
 /** The camera tilts from straight down to behind the light. */
@@ -131,6 +146,23 @@ const SPARKLE_PATH = "M12 2.5c.5 4.6 2.9 7 9.5 9.5-6.6 2.5-9 4.9-9.5 9.5-.5-4.6-
 const OUT_PATH = "M8 16 16.5 7.5M9.5 7.5h7v7";
 /** A box with an arrow leaving it upward, stroked (24 × 24 view box). */
 const SHARE_PATH = "M12 15V3.5M7.5 8 12 3.5 16.5 8M6 11.5H5v9h14v-9h-1";
+/** Four corners: the whole street in the frame (24 × 24 view box). */
+const FIT_PATH = "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5";
+
+/** The ground the visitor's camera may look at: the points' box with a margin, metres. */
+function boxAround(points: readonly EN[], margin: number): ExploreLimits["box"] {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const p of points) {
+    minX = Math.min(minX, p.x);
+    maxX = Math.max(maxX, p.x);
+    minY = Math.min(minY, p.y);
+    maxY = Math.max(maxY, p.y);
+  }
+  return { minX: minX - margin, maxX: maxX + margin, minY: minY - margin, maxY: maxY + margin };
+}
 
 function buttonIcon(d: string, filled: boolean): SVGSVGElement {
   const icon = svg("svg", { viewBox: "0 0 24 24", "aria-hidden": "true" });
@@ -201,6 +233,19 @@ export class StreetShow {
   private samDone: Promise<void> = Promise.resolve();
   /** Each place's sign cut out of the photo, for the places Muse Spark read in one of SAM's boxes. */
   private signCuts = new Map<string, string>();
+  /** The visitor's own camera once they pinch, drag or scroll after the run (null: the show's camera). */
+  private userPose: Pose | null = null;
+  /** A glide of the visitor's camera: to a tapped place, or back to the whole street. */
+  private glide: { from: Pose; to: Pose; at: number; ms: number; done?: () => void } | null = null;
+  private readonly pointers = new Map<number, { x: number; y: number }>();
+  private gesture: { pose: Pose; anchor: EN | null; startX: number; startY: number; spread: number; moved: boolean } | null = null;
+  /** A drag or a pinch just ended: the click that follows is not a tap. */
+  private suppressClick = false;
+  private exploreBox: ExploreLimits["box"] | null = null;
+  private zoomHinted = false;
+  /** The how-to-zoom line is up: it goes as soon as the visitor zooms. */
+  private hintUp = false;
+  private readonly fitButton: HTMLButtonElement;
   private vignette: HTMLCanvasElement | null = null;
   private t0 = performance.now();
   private frozen: number | null = null;
@@ -233,6 +278,7 @@ export class StreetShow {
     this.consoleEl = h("div", { class: "show-console" });
     this.noteEl = h("div", { class: "show-note hidden" });
     this.skipEl = h("button", { class: "show-skip hidden", onclick: () => this.skip() }, "Skip ›");
+    this.fitButton = h("button", { class: "show-icon show-fit hidden", "aria-label": "Whole street", title: "Whole street", onclick: () => this.fitWhole() }, buttonIcon(FIT_PATH, false));
     this.barEl = h("div", { class: "show-bar" });
     this.chipsEl = h("div", { class: "show-chips" });
     this.questBarEl = h("div", { class: "show-quest hidden" });
@@ -244,7 +290,7 @@ export class StreetShow {
       "main",
       { class: "show" },
       this.canvas,
-      h("div", { class: "show-top" }, h("div", { class: "show-heading" }, this.kickerEl, this.nameEl, this.statsEl), h("div", { class: "show-buttons" }, this.skipEl, close)),
+      h("div", { class: "show-top" }, h("div", { class: "show-heading" }, this.kickerEl, this.nameEl, this.statsEl), h("div", { class: "show-buttons" }, this.fitButton, this.skipEl, close)),
       this.noteEl,
       this.consoleEl,
       this.captionEl,
@@ -252,7 +298,20 @@ export class StreetShow {
       this.creditEl,
       this.cardEl,
     );
-    this.canvas.addEventListener("click", (e) => this.tap(e));
+    this.canvas.addEventListener("click", (e) => {
+      if (this.suppressClick) {
+        this.suppressClick = false;
+        return;
+      }
+      this.tap(e);
+    });
+    // Two fingers or the wheel zoom about where they are; one finger drags the ground.
+    this.canvas.addEventListener("pointerdown", (e) => this.pointerDown(e));
+    this.canvas.addEventListener("pointermove", (e) => this.pointerMove(e));
+    for (const type of ["pointerup", "pointercancel"] as const) this.canvas.addEventListener(type, (e) => this.pointerUp(e));
+    this.canvas.addEventListener("wheel", (e) => this.wheel(e), { passive: false });
+    // Safari's own page pinch, over the street.
+    this.canvas.addEventListener("gesturestart", (e) => e.preventDefault());
     window.addEventListener("resize", this.onResize);
   }
 
@@ -277,6 +336,7 @@ export class StreetShow {
     this.route = localRoute(street);
     this.line = sampleRoute(this.route, 10);
     this.spots = new Map(street.shops.map((shop) => [shop.id, dotSpot(this.route!, shop)]));
+    this.exploreBox = boxAround([...this.line.points, { x: 0, y: 0 }], 300);
     this.landmarks = pickLandmarks(street.shops, street.route.length, street.name);
     this.loadedAt = now;
     const minimum = this.options.photo ? PHOTO_SCAN_MS + PHOTO_FOLD_MS + 900 : MIN_COMPUTE_MS;
@@ -394,6 +454,7 @@ export class StreetShow {
         this.revealed = true;
         this.questButton.classList.remove("hidden");
         this.shareButton.classList.remove("hidden");
+        this.hintZoom(3);
       }
       this.bottomEl.classList.remove("away");
       this.skipEl.textContent = "↺";
@@ -411,6 +472,7 @@ export class StreetShow {
     this.focus = focus;
     this.selected = null;
     this.cardEl.classList.add("hidden");
+    this.releaseCamera();
     this.updateOverview();
     const picks = focus ? focus.picks : this.landmarks;
     const light = lightRun(this.route.along[0], this.reach(focus), picks.map((p) => p.s), first ? REVEAL_PACE : focus?.quest ? { ...TOUR_PACE, dwell: 0.9 } : TOUR_PACE);
@@ -455,6 +517,17 @@ export class StreetShow {
   }
 
   private poseAt(now: number): Pose {
+    if (this.userPose && (this.phase === "settle" || this.phase === "overview")) {
+      const glide = this.glide;
+      if (glide) {
+        const k = easeInOut((now - glide.at) / glide.ms);
+        if (k < 1) return lerpPose(glide.from, glide.to, k);
+        this.glide = null;
+        this.userPose = glide.to;
+        glide.done?.();
+      }
+      return this.userPose ?? this.overview;
+    }
     switch (this.phase) {
       case "computing":
       case "failed":
@@ -1072,7 +1145,24 @@ export class StreetShow {
         inputs.push({ key: "end", x: end.x, y: end.y, side, priority: 1e9, name: distanceText(route.length), detail: ends ? "THE STREET ENDS" : "END OF ROUTE", item: { color: "#ffffff", end: true }, font: 11 });
       }
     }
-    this.labels = layoutLabels(inputs, tagMeasure(ctx), { ...area, blocked }, this.roadOnScreen, 10);
+    // Exploring close in: every place in view gets its name, those nearest the middle first, as room allows.
+    const exploring = this.userPose !== null && this.phase !== "run";
+    if (exploring && groundScale(this.lastPose, this.view) >= NAMES_PPM) {
+      const cx = this.view.centerX ?? this.view.width / 2;
+      const cy = (area.top + area.bottom) / 2;
+      const near: { shop: ShopAhead; q: Projected; d: number }[] = [];
+      for (const shop of this.street!.shops) {
+        if (picks.includes(shop) || shop === this.selected || (this.focus && !this.focus.match(shop))) continue;
+        const born = this.bornAt(shop);
+        if (born === null || born > now) continue;
+        const q = project(this.spots.get(shop.id)!);
+        if (!q || q.x < area.left || q.x > area.right || q.y < area.top || q.y > area.bottom) continue;
+        near.push({ shop, q, d: Math.hypot(q.x - cx, q.y - cy) });
+      }
+      near.sort((a, b) => a.d - b.d);
+      near.slice(0, 48).forEach(({ shop, q }, i) => inputs.push(tag(shop, q, 1e6 + i, this.shopColor(shop))));
+    }
+    this.labels = layoutLabels(inputs, tagMeasure(ctx), { ...area, blocked }, this.roadOnScreen, exploring ? EXPLORE_TAGS : 10);
     for (const label of this.labels) this.drawLabel(label, now);
   }
 
@@ -1127,6 +1217,8 @@ export class StreetShow {
   /** The lowest a tag may reach: above the bottom bar, and above the caption while the light runs. */
   private labelBottom(): number {
     let bottom = this.view.height - this.insets.bottom;
+    // Tags stay clear of an open card: the place it is about sits above it.
+    if (!this.cardEl.classList.contains("hidden")) bottom = Math.min(bottom, this.cardEl.offsetTop - 8);
     if (this.phase === "run") {
       const captionBottom = this.bottomEl.classList.contains("away") ? 64 : this.insets.bottom + 6;
       const captionHeight = Math.max(96, this.captionEl.classList.contains("hidden") ? 0 : this.captionEl.offsetHeight);
@@ -1464,6 +1556,157 @@ export class StreetShow {
     this.renderChips();
   }
 
+  // ----- Exploring: pinch, drag, scroll -----
+
+  /** After the run has begun: before it the street is not drawn yet. */
+  private canExplore(): boolean {
+    return this.street !== null && this.exploreBox !== null && (this.phase === "run" || this.phase === "settle" || this.phase === "overview");
+  }
+
+  private limits(): ExploreLimits {
+    return { minDistance: 150, maxDistance: Math.max(1500, this.overview.distance * 1.4), box: this.exploreBox! };
+  }
+
+  /** The visitor takes the camera: a running light first jumps to its end, so the whole street is there to explore. */
+  private takeCamera(): void {
+    if (this.phase === "run") this.skip();
+    if (!this.userPose) this.userPose = { ...this.lastPose };
+    this.glide = null;
+    this.zoomHinted = true;
+    if (this.hintUp) this.noteEl.classList.add("hidden");
+    this.fitButton.classList.remove("hidden");
+  }
+
+  /** The show's camera again (a new run, or back to the whole street). */
+  private releaseCamera(): void {
+    this.userPose = null;
+    this.glide = null;
+    this.gesture = null;
+    this.fitButton.classList.add("hidden");
+  }
+
+  /** Glides back to the whole street, then hands the camera back to the show. */
+  private fitWhole(): void {
+    if (!this.userPose) return;
+    this.glide = { from: this.lastPose, to: this.overview, at: this.clock(), ms: 700, done: () => this.releaseCamera() };
+  }
+
+  private pointerAt(e: PointerEvent | WheelEvent | MouseEvent): { x: number; y: number } {
+    const rect = this.canvas.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
+
+  /** Where the gesture is: the finger, or the middle of two; and how far apart two are. */
+  private gestureSpot(): { x: number; y: number; spread: number } {
+    const pts = [...this.pointers.values()];
+    if (pts.length < 2) return { ...pts[0], spread: 0 };
+    return { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2, spread: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) };
+  }
+
+  /** A gesture starts (or changes from one finger to two): the ground under it is held from now on. */
+  private beginGesture(moved: boolean): void {
+    if (this.pointers.size === 0) {
+      this.gesture = null;
+      return;
+    }
+    const at = this.gestureSpot();
+    const pose = this.userPose ?? this.lastPose;
+    this.gesture = { pose, anchor: groundAt(pose, this.view, at.x, at.y), startX: at.x, startY: at.y, spread: at.spread, moved };
+  }
+
+  private pointerDown(e: PointerEvent): void {
+    if (!this.canExplore()) return;
+    if (this.pointers.size === 0) this.suppressClick = false;
+    this.pointers.set(e.pointerId, this.pointerAt(e));
+    try {
+      // The finger keeps the gesture even when it slides over the buttons.
+      this.canvas.setPointerCapture(e.pointerId);
+    } catch {
+      // A pointer the browser no longer tracks: the gesture goes on without the capture.
+    }
+    this.beginGesture(this.gesture?.moved ?? false);
+  }
+
+  private pointerMove(e: PointerEvent): void {
+    if (!this.pointers.has(e.pointerId)) return;
+    this.pointers.set(e.pointerId, this.pointerAt(e));
+    const g = this.gesture;
+    if (!g) return;
+    const at = this.gestureSpot();
+    if (!g.moved) {
+      if (this.pointers.size < 2 && Math.hypot(at.x - g.startX, at.y - g.startY) < DRAG_SLOP_PX) return;
+      this.takeCamera();
+      // The camera may have moved since the finger went down (the light was running): hold the ground under it now.
+      g.pose = this.userPose!;
+      g.anchor = groundAt(g.pose, this.view, g.startX, g.startY);
+      g.moved = true;
+      this.canvas.classList.add("dragging");
+    }
+    if (!g.anchor) return;
+    const limits = this.limits();
+    const pose = g.spread > 0 && at.spread > 0 ? clampPose({ ...g.pose, distance: (g.pose.distance * g.spread) / at.spread }, limits) : g.pose;
+    this.userPose = clampPose(poseKeeping(pose, this.view, g.anchor, at.x, at.y) ?? pose, limits);
+  }
+
+  private pointerUp(e: PointerEvent): void {
+    if (!this.pointers.delete(e.pointerId)) return;
+    const moved = this.gesture?.moved ?? false;
+    if (moved) this.suppressClick = true;
+    if (this.pointers.size > 0) this.beginGesture(moved);
+    else {
+      this.gesture = null;
+      this.canvas.classList.remove("dragging");
+    }
+  }
+
+  private wheel(e: WheelEvent): void {
+    if (!this.canExplore()) return;
+    e.preventDefault();
+    this.takeCamera();
+    const at = this.pointerAt(e);
+    const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+    // A trackpad pinch arrives as a wheel with ctrlKey and small steps.
+    const factor = Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015));
+    this.userPose = zoomAbout(this.userPose!, this.view, factor, at.x, at.y, this.limits());
+  }
+
+  /**
+   * After a tap on a place: the camera glides so the place sits in the open
+   * space above its card, closer in when the street was seen from far, so
+   * its neighbours get their names too.
+   */
+  private bringIntoView(shop: ShopAhead): void {
+    if ((this.phase !== "settle" && this.phase !== "overview") || !this.exploreBox) return;
+    const spot = this.spots.get(shop.id);
+    if (!spot) return;
+    const from = this.lastPose;
+    const top = this.insets.top + 30;
+    const cardTop = this.cardEl.classList.contains("hidden") ? this.view.height - this.insets.bottom : this.cardEl.offsetTop;
+    const x = this.view.centerX ?? this.view.width / 2;
+    const y = Math.max(top, (top + cardTop) / 2);
+    const limits = this.limits();
+    const closer = groundScale(from, this.view) < TAP_PPM ? clampPose({ ...from, distance: focalPx(this.view) / TAP_PPM }, limits) : from;
+    const to = clampPose(poseKeeping(closer, this.view, spot, x, y) ?? closer, limits);
+    this.userPose = this.userPose ?? { ...from };
+    this.glide = { from, to, at: this.clock(), ms: 650 };
+    this.zoomHinted = true;
+    this.fitButton.classList.remove("hidden");
+  }
+
+  /** Once, after the first run: how to look closer (when no other line is up). */
+  private hintZoom(tries: number): void {
+    window.setTimeout(() => {
+      if (this.disposed || this.zoomHinted || this.phase === "run") return;
+      if (!this.noteEl.classList.contains("hidden")) {
+        if (tries > 1) this.hintZoom(tries - 1);
+        return;
+      }
+      this.zoomHinted = true;
+      this.note("Pinch or scroll to zoom into a stretch: every place there gets its name. Drag to move.", 5000);
+      this.hintUp = true;
+    }, 1500);
+  }
+
   private tap(e: MouseEvent): void {
     if (!this.street || this.phase === "computing" || this.phase === "failed") return;
     const rect = this.canvas.getBoundingClientRect();
@@ -1472,6 +1715,7 @@ export class StreetShow {
     const hit = this.labels.find((l) => l.item.shop && x >= l.box.x && x <= l.box.x + l.box.w && y >= l.box.y && y <= l.box.y + l.box.h);
     if (hit?.item.shop) {
       this.showCard(hit.item.shop);
+      this.bringIntoView(hit.item.shop);
       return;
     }
     const now = this.clock();
@@ -1489,8 +1733,10 @@ export class StreetShow {
         best = shop;
       }
     }
-    if (best) this.showCard(best);
-    else {
+    if (best) {
+      this.showCard(best);
+      this.bringIntoView(best);
+    } else {
       this.selected = null;
       this.cardEl.classList.add("hidden");
     }
@@ -1550,6 +1796,7 @@ export class StreetShow {
 
   /** A line over the street for a while; `pictures`, small images under it (the signs from the photo). */
   private note(text: string, ms: number, good = false, pictures: { src: string; alt: string }[] = [], caption = ""): void {
+    this.hintUp = false;
     this.noteEl.replaceChildren(text);
     if (pictures.length > 0) {
       this.noteEl.append(

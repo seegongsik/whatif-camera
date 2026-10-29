@@ -4,10 +4,13 @@ import { SHOP_CATEGORIES } from "../src/street/osm.js";
 import {
   brandCounts,
   chaseTrack,
+  clampPose,
   dotOffset,
   easeOutBack,
   fameScore,
   followPose,
+  groundAt,
+  groundScale,
   GROUPS,
   groupOf,
   histogram,
@@ -19,12 +22,16 @@ import {
   overviewPose,
   pickGroup,
   pickLandmarks,
+  poseKeeping,
   project,
   radarPose,
   REVEAL_PACE,
   sampleRoute,
   screenSide,
   streetCores,
+  zoomAbout,
+  type ExploreLimits,
+  type Pose,
   type View,
 } from "../src/street/show-plan.js";
 import { localRoute } from "../src/street/street.js";
@@ -247,3 +254,51 @@ describe("places in the picture", () => {
     expect(histogram([{ s: 10 }, { s: 20 }, { s: 990 }, { s: 1000 }, { s: -5 }], 1000, 4)).toEqual([3, 0, 0, 2]);
   });
 });
+
+describe("exploring the street", () => {
+  const view: View = { width: 390, height: 844, fovDeg: 50, centerX: 178 };
+  const pose: Pose = { x: 120, y: 900, yawDeg: 20, pitchDeg: 52, distance: 2400 };
+  const limits: ExploreLimits = { minDistance: 150, maxDistance: 5000, box: { minX: -1000, maxX: 1000, minY: -1000, maxY: 6000 } };
+
+  it("finds the ground under a point on the screen, and nothing above the horizon", () => {
+    for (const p of [
+      { x: 120, y: 900 },
+      { x: 300, y: 1500 },
+      { x: -80, y: 400 },
+    ]) {
+      const q = project(pose, view, p)!;
+      const g = groundAt(pose, view, q.x, q.y)!;
+      expect(g.x).toBeCloseTo(p.x, 6);
+      expect(g.y).toBeCloseTo(p.y, 6);
+    }
+    // The middle of the picture looks at the camera's target.
+    const middle = groundAt(pose, view, 178, 422)!;
+    expect(middle.x).toBeCloseTo(120, 6);
+    expect(middle.y).toBeCloseTo(900, 6);
+    expect(groundAt({ ...pose, pitchDeg: 10 }, view, 178, 0)).toBeNull();
+  });
+
+  it("keeps the ground under the finger while it drags", () => {
+    const anchor = groundAt(pose, view, 100, 600)!;
+    const moved = poseKeeping(pose, view, anchor, 220, 380)!;
+    const q = project(moved, view, anchor)!;
+    expect(q.x).toBeCloseTo(220, 6);
+    expect(q.y).toBeCloseTo(380, 6);
+    expect(moved.distance).toBe(pose.distance);
+    expect(moved.yawDeg).toBe(pose.yawDeg);
+  });
+
+  it("zooms about the fingers, within its limits", () => {
+    const anchor = groundAt(pose, view, 250, 300)!;
+    const closer = zoomAbout(pose, view, 4, 250, 300, limits);
+    expect(closer.distance).toBeCloseTo(600, 6);
+    const q = project(closer, view, anchor)!;
+    expect(q.x).toBeCloseTo(250, 6);
+    expect(q.y).toBeCloseTo(300, 6);
+    expect(groundScale(closer, view)).toBeCloseTo(4 * groundScale(pose, view), 6);
+    expect(zoomAbout(pose, view, 100, 250, 300, limits).distance).toBe(150);
+    expect(zoomAbout(pose, view, 0.01, 250, 300, limits).distance).toBe(5000);
+    expect(clampPose({ ...pose, x: 9000, y: -9000 }, limits)).toMatchObject({ x: 1000, y: -1000 });
+  });
+});
+

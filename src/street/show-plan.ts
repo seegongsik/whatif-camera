@@ -320,6 +320,55 @@ export function projector(pose: Pose, view: View): (p: EN, z?: number) => Projec
   };
 }
 
+// ----- Exploring: the visitor's own camera -----
+
+/** The point on the ground under a point on the screen; null at or above the horizon. */
+export function groundAt(pose: Pose, view: View, sx: number, sy: number): EN | null {
+  const a = axes(pose);
+  const f = focalPx(view);
+  const u = (sx - (view.centerX ?? view.width / 2)) / f;
+  const w = (view.height / 2 - sy) / f;
+  // The ray from the eye through the point.
+  const dx = a.forward.x + a.right.x * u + a.up.x * w;
+  const dy = a.forward.y + a.right.y * u + a.up.y * w;
+  const dz = a.forward.z + a.right.z * u + a.up.z * w;
+  if (dz > -1e-3) return null;
+  const t = -a.eye.z / dz;
+  return { x: a.eye.x + dx * t, y: a.eye.y + dy * t };
+}
+
+/** The camera slid over the ground so that `anchor` lies under the screen point (sx, sy): what a finger dragging the ground does. */
+export function poseKeeping(pose: Pose, view: View, anchor: EN, sx: number, sy: number): Pose | null {
+  const g = groundAt(pose, view, sx, sy);
+  if (!g) return null;
+  return { ...pose, x: pose.x + anchor.x - g.x, y: pose.y + anchor.y - g.y };
+}
+
+/** How close the visitor's camera may come, how far it may go, and the ground its centre stays over. */
+export type ExploreLimits = { minDistance: number; maxDistance: number; box: { minX: number; maxX: number; minY: number; maxY: number } };
+
+export function clampPose(pose: Pose, limits: ExploreLimits): Pose {
+  return {
+    ...pose,
+    distance: Math.min(limits.maxDistance, Math.max(limits.minDistance, pose.distance)),
+    x: Math.min(limits.box.maxX, Math.max(limits.box.minX, pose.x)),
+    y: Math.min(limits.box.maxY, Math.max(limits.box.minY, pose.y)),
+  };
+}
+
+/** Closer by `factor` (under 1: farther) about the screen point (sx, sy), which keeps the ground under it. */
+export function zoomAbout(pose: Pose, view: View, factor: number, sx: number, sy: number, limits: ExploreLimits): Pose {
+  const anchor = groundAt(pose, view, sx, sy);
+  const closer = clampPose({ ...pose, distance: pose.distance / factor }, limits);
+  if (!anchor) return closer;
+  return clampPose(poseKeeping(closer, view, anchor, sx, sy) ?? closer, limits);
+}
+
+/** Screen pixels per metre of ground at the middle of the picture. */
+export function groundScale(pose: Pose, view: View): number {
+  return focalPx(view) / pose.distance;
+}
+
 export function easeInOut(t: number): number {
   const x = Math.min(1, Math.max(0, t));
   return x < 0.5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2;
