@@ -1,5 +1,10 @@
 # PROGRESS
 
+## 2026-10-29 (KST) · 3일 차 ⑥: 라이선스 (D21)
+- PR #11 머지. 실서버에서 카톡 안내·위치 거부·대략 위치·카메라 없음 안내를 확인함. `/api/status`에서 `modelApiKeyConfigured: true`(민우가 Vercel에 `MODEL_API_KEY`를 Production·Preview로 넣음).
+- 민우: 공개 레포와 화면의 출처·기술 설명을 보고 누가 더 개선해서 출품하면 어떡하나 걱정. 레포는 만들 때 GitHub가 넣은 MIT 라이선스였음(첫 커밋 10/26 18:14 KST는 LICENSE 파일 하나뿐, 코드는 10/27 02:00 이후).
+- 바꾼 것(D21): 라이선스를 MIT에서 「All rights reserved」로. 심사용 공개만 허락하고 복사·수정·배포·다른 출품작에 쓰는 것을 금함. 대회 주최 측이 규정으로 받는 라이선스는 그대로.
+
 ## 2026-10-29 (KST) · 3일 차 ⑤: 제출 규정, Meta 크레딧
 - 민우: 와이프 아이폰 17 Pro에서도 조금 기다리니 됨(위치가 늦게 들어온 것). 「정확하게 그 길에 안 서 있어도 어림잡아 주고, 인스타그램·페이스북·웹사이트까지 바로 연결되고, Muse Spark가 짜 주는 Quest까지」.
 - Meta Model API Billing에 무료 크레딧 $150 확인(민우 화면, 2026-10-29). CLAUDE.md의 「크레딧 확인 전 Meta Model API 호출 금지」 조건이 풀림. 남은 것: Vercel에 `MODEL_API_KEY`, Billing의 Spend limit 설정. 무료 크레딧 사용 중에는 보낸 내용이 제품 개선에 쓰일 수 있다고 Billing에 적혀 있음.
