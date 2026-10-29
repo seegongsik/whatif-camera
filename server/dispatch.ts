@@ -1,4 +1,4 @@
-import { handleDesign, handleFootprints, handleQuest, handleSigns, handleStatus, handleStreet } from "./routes.js";
+import { handleDesign, handleFootprints, handleQuest, handleSam, handleSigns, handleStatus, handleStreet } from "./routes.js";
 
 const ROUTES: Record<string, (request: Request) => Promise<Response>> = {
   "/api/status": (r) => handleStatus(r),
@@ -7,6 +7,7 @@ const ROUTES: Record<string, (request: Request) => Promise<Response>> = {
   "/api/street": (r) => handleStreet(r),
   "/api/quest": (r) => handleQuest(r),
   "/api/signs": (r) => handleSigns(r),
+  "/api/sam": (r) => handleSam(r),
 };
 
 export async function dispatchApi(request: Request): Promise<Response> {

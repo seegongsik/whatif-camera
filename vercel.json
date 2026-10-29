@@ -5,6 +5,7 @@
     "api/design.ts": { "maxDuration": 90 },
     "api/street.ts": { "maxDuration": 60 },
     "api/quest.ts": { "maxDuration": 90 },
-    "api/signs.ts": { "maxDuration": 90 }
+    "api/signs.ts": { "maxDuration": 90 },
+    "api/sam.ts": { "maxDuration": 60 }
   }
 }

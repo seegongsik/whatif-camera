@@ -85,7 +85,8 @@ SYNTHETIC numbers from this repository, not real-world accuracy (that is not mea
 | Design choices and captions from the photo and the facts | `meta-models/muse-spark-open-1026` | Baseten, OpenAI-compatible Chat Completions | wired; used when `BASETEN_API_KEY` is set |
 | What's Ahead: which mapped places' names are readable in the photo | `meta-models/muse-spark-open-1026` | Baseten | wired (`/api/signs`); used when `BASETEN_API_KEY` is set |
 | What's Ahead: quest stops by id, a title and a line per stop | `meta-models/muse-spark-open-1026` | Baseten | wired (`/api/quest`); the app's own pick without a key |
-| Building outline and corners from a tap (automatic marks) | `sam-3.1` | Meta Model API | planned; not called before the hackathon credits are confirmed |
+| What's Ahead: every shop sign in the photo, as a box and an outline (prompt "shop sign") | `sam-3.1` | Meta Model API, Responses API | wired (`/api/sam`); used when `MODEL_API_KEY` is set; the street view's use of it comes next |
+| Building outline and corners from a tap (automatic marks) | `sam-3.1` | Meta Model API | planned |
 
 When the model is configured, the photo (downscaled to 1024 px) and the measured facts or the nearest places' names are sent to it through the app's server; nothing is stored there. The quest request carries no names and no photo. Muse Wonder is documented as unavailable in South Korea, so it is not used. The video is rendered, not generated: a video model would not keep the floor count and the dimension lines consistent from frame to frame.
 
@@ -124,11 +125,11 @@ Server side only; `/api/status` returns booleans.
 | Variable | Use |
 | --- | --- |
 | `BASETEN_API_KEY` | Muse Spark Open on Baseten |
-| `MODEL_API_KEY` (or `META_API_KEY`) | Meta Model API (SAM 3.1), not called yet |
+| `MODEL_API_KEY` (or `META_API_KEY`) | Meta Model API: SAM 3.1 (`/api/sam`) |
 | `OVERPASS_URLS` (or `OVERPASS_URL`) | Overpass API instances to try first, comma-separated, HTTPS only |
 | `FOOTPRINT_TILES` | `off` disables the vector-tile fallback |
 | `OVERTURE_PLACES` | `off` takes the places from OpenStreetMap only |
-| `DAILY_FOOTPRINT_CALL_CAP`, `DAILY_SPARK_CALL_CAP`, `DAILY_STREET_CALL_CAP` | per-instance daily caps (defaults 2000, 300 and 2000) |
+| `DAILY_FOOTPRINT_CALL_CAP`, `DAILY_SPARK_CALL_CAP`, `DAILY_STREET_CALL_CAP`, `DAILY_SAM_CALL_CAP` | per-instance daily caps (defaults 2000, 300, 2000 and 1000) |
 
 ## Open source used
 
@@ -136,6 +137,7 @@ Server side only; `/api/status` returns booleans.
 | --- | --- | --- |
 | `three` (with its `examples/jsm` lines and BufferGeometryUtils) | 3D rendering | MIT |
 | `hyparquet` | Reads Overture's Parquet files on the server (row groups and columns by range request; zstd through Node's own `zlib`) | MIT |
+| `@meta-sam/parser` | Meta's reader for SAM 3.1's token text: boxes, and masks turned into SVG outlines (server) | SAM License |
 | `vite`, `vitest` | build, dev server, tests | MIT |
 | `typescript`, `typescript-eslint`, `eslint`, `@eslint/js`, `globals`, `@types/three`, `@types/node` | types and lint | Apache-2.0 / MIT |
 
