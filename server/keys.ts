@@ -5,7 +5,7 @@ export function resolveBasetenApiKey(env: EnvMap = process.env): string | undefi
   return key && key.length > 0 ? key : undefined;
 }
 
-/** Official name first, then the alias. Not used for calls yet (SAM 3.1 waits for the hackathon credits). */
+/** Official name first, then the alias. For SAM 3.1 (Minwoo confirmed the hackathon credits under Billing on 2026-10-29). */
 export function resolveModelApiKey(env: EnvMap = process.env): string | undefined {
   const key = env.MODEL_API_KEY ?? env.META_API_KEY;
   return key && key.length > 0 ? key : undefined;

@@ -797,13 +797,28 @@ main.show {
   left: 0;
   right: 0;
   /* Above the two lines of credits. */
-  bottom: calc(max(4px, env(safe-area-inset-bottom)) + 30px);
+  bottom: calc(max(6px, env(safe-area-inset-bottom)) + 30px);
   display: grid;
   gap: 10px;
   padding: 0 12px;
+  /* Its own layer, so the band behind it stays above the street. */
+  isolation: isolate;
   transition:
     transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1),
     opacity 0.7s;
+}
+
+/* A dark band behind the controls and the credits: the street's line and dots don't run through the buttons. */
+.show-bottom::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: 0;
+  right: 0;
+  top: -30px;
+  bottom: calc(-1 * (max(6px, env(safe-area-inset-bottom)) + 30px));
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0) 0, rgba(0, 0, 0, 0.74) 30px, rgba(0, 0, 0, 0.9) 100%);
+  pointer-events: none;
 }
 
 .show-bottom.away {
@@ -814,20 +829,78 @@ main.show {
 
 .show-actions {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  align-items: stretch;
+  gap: 8px;
 }
 
-.show-actions .show-pill.hidden {
+/* The bottom's buttons: a thumb's width tall. */
+.show-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 18px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  transition: transform 0.12s;
+}
+
+.show-btn:active {
+  transform: scale(0.97);
+}
+
+.show-btn svg {
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+
+/* Above the street mode's general primary button (body.street-mode button.primary). */
+.show-bottom .show-btn.primary {
+  flex: 1;
+  justify-content: flex-start;
+  padding: 0 16px;
+  border-color: transparent;
+  background: linear-gradient(135deg, #ffe58a 0%, #ffd54a 45%, #ffb838 100%);
+  color: #1c1300;
+  box-shadow: 0 6px 22px rgba(255, 196, 61, 0.26);
+}
+
+/* Label over a small line naming who does the work. */
+.show-btn-text {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.show-btn-label {
+  line-height: 1.1;
+}
+
+.show-btn-tag {
+  font: 700 9.5px/1.1 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+
+.show-btn.hidden {
   display: none;
 }
 
+/* The street's mix of places, kind by kind, as one strip. */
 .show-bar {
   display: flex;
-  flex: 1;
   gap: 2px;
   height: 4px;
-  margin: 0 6px 0 4px;
+  margin: 0 2px;
   overflow: hidden;
   border-radius: 2px;
 }
@@ -858,8 +931,8 @@ main.show {
 
 .show-caption-k {
   overflow: hidden;
-  font: 600 10.5px/1.4 var(--mono);
-  letter-spacing: 0.12em;
+  font: 650 11px/1.4 var(--mono);
+  letter-spacing: 0.08em;
   color: var(--c);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -880,8 +953,8 @@ main.show {
 
 .show-caption-line {
   margin-top: 4px;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.78);
+  font-size: 13.5px;
+  color: rgba(255, 255, 255, 0.86);
 }
 
 
@@ -896,10 +969,13 @@ main.show {
 
 .show-chips {
   display: flex;
-  gap: 6px;
-  padding: 2px 0;
+  gap: 8px;
+  padding: 2px 28px 2px 0;
   overflow-x: auto;
   scrollbar-width: none;
+  /* The right edge fades: there are more kinds to scroll to. */
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
 }
 
 .show-chips::-webkit-scrollbar {
@@ -908,13 +984,14 @@ main.show {
 
 .show-chip {
   flex: none;
-  min-height: 38px;
-  padding: 0 14px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(14, 18, 26, 0.82);
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 13px;
-  gap: 7px;
+  min-height: 44px;
+  padding: 0 8px 0 14px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(18, 22, 30, 0.94);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 650;
+  gap: 8px;
 }
 
 .show-chip i {
@@ -926,31 +1003,39 @@ main.show {
 }
 
 .show-chip b {
-  font: 600 11px var(--mono);
-  color: rgba(255, 255, 255, 0.5);
+  min-width: 26px;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  font: 700 12px/1 var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.86);
+  text-align: center;
 }
 
 .show-chip.on {
   border-color: var(--c);
   background: rgba(14, 18, 26, 0.9);
-  background: color-mix(in srgb, var(--c) 24%, #05070a);
+  background: color-mix(in srgb, var(--c) 26%, #05070a);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--c) 35%, transparent);
   color: #fff;
 }
 
 .show-chip.on b {
-  color: var(--c);
+  background: var(--c);
+  color: #04080c;
 }
 
 .show-credit {
   position: absolute;
   left: 12px;
   right: 12px;
-  bottom: max(4px, env(safe-area-inset-bottom));
+  bottom: max(6px, env(safe-area-inset-bottom));
   max-height: 2.7em;
   overflow: hidden;
-  font-size: 10px;
+  font-size: 10.5px;
   line-height: 1.3;
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(255, 255, 255, 0.64);
   text-align: center;
   pointer-events: none;
 }
@@ -1069,7 +1154,38 @@ main.show {
   color: #ffe17a;
 }
 
-.show-card-links,
+/* The place's own pages: equal buttons across the card, a thumb tall. */
+.show-card-links {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: 8px;
+  margin: 14px 0 8px;
+}
+
+.show-card-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 46px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--c) 55%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--c) 14%, transparent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.show-card-link svg {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  opacity: 0.75;
+}
+
 .show-card-also {
   display: flex;
   flex-wrap: wrap;
@@ -1095,9 +1211,9 @@ main.show {
   position: absolute;
   top: 10px;
   right: 10px;
-  width: 36px;
-  height: 36px;
-  min-height: 36px;
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
   padding: 0;
   border: none;
   border-radius: 50%;

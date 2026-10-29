@@ -10,7 +10,7 @@
 import { photoForModel } from "../capture/model-photo.js";
 import type { CaptureMeta } from "../capture/types.js";
 import { normDeg, type EN } from "../geo/enu.js";
-import { h } from "../ui/dom.js";
+import { h, svg } from "../ui/dom.js";
 import type { ShopAhead } from "./ahead.js";
 import type { Quest } from "./quest.js";
 import { QuestSheet } from "./quest-ui.js";
@@ -116,6 +116,21 @@ type LabelItem = TagStyle & { shop?: ShopAhead };
 
 type ConsoleRow = { id: string; key: string; value: string; state: "wait" | "done" | "info" | "fail" };
 
+/** A four-pointed spark, filled (24 × 24 view box). */
+const SPARKLE_PATH = "M12 2.5c.5 4.6 2.9 7 9.5 9.5-6.6 2.5-9 4.9-9.5 9.5-.5-4.6-2.9-7-9.5-9.5 6.6-2.5 9-4.9 9.5-9.5z";
+/** An arrow leaving to the upper right: the link opens elsewhere (24 × 24 view box). */
+const OUT_PATH = "M8 16 16.5 7.5M9.5 7.5h7v7";
+/** A box with an arrow leaving it upward, stroked (24 × 24 view box). */
+const SHARE_PATH = "M12 15V3.5M7.5 8 12 3.5 16.5 8M6 11.5H5v9h14v-9h-1";
+
+function buttonIcon(d: string, filled: boolean): SVGSVGElement {
+  const icon = svg("svg", { viewBox: "0 0 24 24", "aria-hidden": "true" });
+  icon.append(
+    svg("path", filled ? { d, fill: "currentColor" } : { d, fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round" }),
+  );
+  return icon;
+}
+
 export function compassPoint(deg: number): string {
   return COMPASS[Math.round(normDeg(deg) / 22.5) % 16];
 }
@@ -188,8 +203,14 @@ export class StreetShow {
     this.kickerEl = h("div", { class: "show-kicker", text: "WHAT'S AHEAD" });
     this.nameEl = h("div", { class: "show-name", text: "Finding your street" });
     this.statsEl = h("div", { class: "show-stats" });
-    this.questButton = h("button", { class: "show-pill hidden", onclick: () => this.questSheet?.open() }, "✦ Quest");
-    this.shareButton = h("button", { class: "show-pill hidden", onclick: () => void this.share() }, "↗ Share");
+    // The quest is the main thing to do next, and names the model that plans it.
+    this.questButton = h(
+      "button",
+      { class: "show-btn primary hidden", onclick: () => this.questSheet?.open() },
+      buttonIcon(SPARKLE_PATH, true),
+      h("span", { class: "show-btn-text" }, h("span", { class: "show-btn-label", text: "Make a quest" }), h("span", { class: "show-btn-tag", text: "Planned by Muse Spark" })),
+    );
+    this.shareButton = h("button", { class: "show-btn hidden", onclick: () => void this.share() }, buttonIcon(SHARE_PATH, false), h("span", { class: "show-btn-label", text: "Share" }));
     const close = h("button", { class: "show-icon", "aria-label": "Close", title: "Close", onclick: options.onClose }, "×");
     this.consoleEl = h("div", { class: "show-console" });
     this.noteEl = h("div", { class: "show-note hidden" });
@@ -199,7 +220,7 @@ export class StreetShow {
     this.questBarEl = h("div", { class: "show-quest hidden" });
     this.creditEl = h("div", { class: "show-credit", text: "Map © OpenStreetMap contributors" });
     this.captionEl = h("div", { class: "show-caption hidden" });
-    this.bottomEl = h("div", { class: "show-bottom away" }, this.questBarEl, h("div", { class: "show-actions" }, this.barEl, this.questButton, this.shareButton), this.chipsEl);
+    this.bottomEl = h("div", { class: "show-bottom away" }, this.questBarEl, h("div", { class: "show-actions" }, this.questButton, this.shareButton), this.barEl, this.chipsEl);
     this.cardEl = h("div", { class: "show-card hidden" });
     this.element = h(
       "main",
@@ -1456,11 +1477,9 @@ export class StreetShow {
     const color = this.shopColor(shop);
     const near = street.shops.filter((o) => o !== shop && o.side === shop.side && Math.abs(o.s - shop.s) < 15).slice(0, 6);
     const stop = this.focus?.quest?.quest.stops.find((s) => s.id === shop.id);
-    const links = [
-      shop.instagram ? h("a", { class: "show-pill", href: shop.instagram, target: "_blank", rel: "noopener" }, "Instagram") : null,
-      shop.facebook ? h("a", { class: "show-pill", href: shop.facebook, target: "_blank", rel: "noopener" }, "Facebook") : null,
-      shop.website ? h("a", { class: "show-pill", href: shop.website, target: "_blank", rel: "noopener" }, "Website") : null,
-    ];
+    const link = (href: string | undefined, label: string) =>
+      href ? h("a", { class: "show-card-link", href, target: "_blank", rel: "noopener" }, h("span", { text: label }), buttonIcon(OUT_PATH, false)) : null;
+    const links = [link(shop.instagram, "Instagram"), link(shop.facebook, "Facebook"), link(shop.website, "Website")];
     this.cardEl.style.setProperty("--c", color);
     const parts: (Node | null)[] = [
       h("div", { class: "show-card-kicker" }, h("i"), `${group.label.toUpperCase()} · ${kindWord(shop.kind).toUpperCase()}`),

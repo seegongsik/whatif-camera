@@ -16,6 +16,7 @@
     "check:api": "node scripts/check-api.mjs"
   },
   "dependencies": {
+    "@meta-sam/parser": "0.1.0",
     "hyparquet": "1.31.3",
     "three": "^0.186.1"
   },
