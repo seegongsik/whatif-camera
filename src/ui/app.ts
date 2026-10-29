@@ -200,13 +200,14 @@ export class App {
         h("div", { class: "home-kicker", text: "ONE PHOTO · THE NEXT 5 KM" }),
         h("h1", {}, "What's Ahead", h("span", { class: "accent", text: "?" })),
         heroClip(),
+        // The way in right under the clip, inside the first screen; what it does follows.
+        error ? h("p", { class: "error", text: error }) : null,
+        this.inAppNote(),
+        h("button", { class: "primary big", onclick: () => void this.openCamera() }, "Open camera"),
         h("p", {
           class: "lead",
           text: "Point your phone down a street and take one photo. A light runs 5 km ahead, dots every place the map knows on its side of the street, and stops at the landmarks.",
         }),
-        error ? h("p", { class: "error", text: error }) : null,
-        this.inAppNote(),
-        h("button", { class: "primary big", onclick: () => void this.openCamera() }, "Open camera"),
         h(
           "div",
           { class: "row" },
