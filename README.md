@@ -11,7 +11,7 @@ Shop data is what OpenStreetMap has mapped, shown with its source; shops change.
 
 ## What's Ahead
 
-The home page opens on a looping recording of the app (`public/demo/whats-ahead-loop.mp4`, 17 s): a viewfinder on a street drawn in light (an illustration, not a photo of a place: no people, text or brands), the shutter, then the app itself taking that picture as its photo at Times Square and running 7th Avenue south with real map data (OpenStreetMap and Overture places as of 2026-10-29, credited in the clip). Under it, the ways in (camera, a photo, the SYNTHETIC street) and the demo streets, one per line.
+The home page opens on a looping recording of the app (`public/demo/whats-ahead-loop.mp4`, 23 s, 2.2 MB; the page does not wait for it, the poster shows first): a viewfinder on a street drawn in light (an illustration, not a photo of a place: no people, text or brands), the shutter, then the app itself taking that picture as its photo at Times Square and running 7th Avenue south with real map data (OpenStreetMap and Overture places as of 2026-10-29, credited in the clip). A finger then taps a restaurant on the street, its card rises, and the finger taps the restaurant's Instagram link; a caption card names the page the link opens (the clip does not show that page, which is someone else's). Under it, the ways in (camera, a photo, the SYNTHETIC street) and the demo streets, one per line.
 
 ![The SYNTHETIC street: the radar while the street is looked up, the light stopping at a landmark, the whole street with its landmarks and the chips](docs/screenshots/2026-10-28-street-show-synthetic.jpg)
 

@@ -791,7 +791,9 @@ function timeZone(): string | undefined {
 /**
  * The landing's moving picture: a recording of the app itself (the photo is
  * a drawn street; the street, its places and landmarks are real map data,
- * credited in the clip). Still, on its poster, when motion is reduced.
+ * credited in the clip). It ends on a tap on a place and its Instagram link,
+ * and a caption card with where that link goes. Still, on its poster, when
+ * motion is reduced.
  */
 function heroClip(): HTMLElement {
   const still = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -799,7 +801,7 @@ function heroClip(): HTMLElement {
     class: "hero-clip",
     src: "/demo/whats-ahead-loop.mp4",
     poster: "/demo/whats-ahead-loop.jpg",
-    "aria-label": "Recording of the app: a photo down 7th Avenue from Times Square, then a light running the street and stopping at its landmarks",
+    "aria-label": "Recording of the app: a photo down 7th Avenue from Times Square, a light running the street and stopping at its landmarks, then a tap on a restaurant and on its Instagram link",
   });
   // Muted and inline, as attributes too, so phones let it play by itself.
   for (const name of ["muted", "playsinline", "loop"]) video.setAttribute(name, "");
