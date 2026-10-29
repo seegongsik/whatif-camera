@@ -63,6 +63,16 @@ export function locationHelp(code: number, userAgent: string): string {
   return "Location is not available: check that Location Services are on.";
 }
 
+/** After this long with neither a fix nor a refusal, the question about location most likely never reached the screen. */
+export const LOCATION_WAIT_MS = 8000;
+
+/** No fix and no refusal after a while: location is most likely off for this browser, so the phone never asked. */
+export function waitingHelp(userAgent: string): string {
+  if (!isIOS(userAgent)) return "Still no location. Check that location is on and allowed for this browser, then reload the page.";
+  const app = iosBrowser(userAgent);
+  return `Still no location. On iPhone: Settings → Privacy & Security → Location Services on, then ${app === "Safari" ? "Safari Websites" : app} → While Using the App, with Precise Location on. Then reload the page and allow location.`;
+}
+
 /** The fix is only a rough area: almost always Precise Location turned off. */
 export function approximateHelp(accuracyM: number, userAgent: string): string {
   const km = (accuracyM / 1000).toFixed(1);

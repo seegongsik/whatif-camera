@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { APPROXIMATE_FIX_M, approximateHelp, cameraHelp, inAppBrowser, isIOS, locationHelp } from "../src/capture/help.js";
+import { APPROXIMATE_FIX_M, approximateHelp, cameraHelp, inAppBrowser, isIOS, locationHelp, waitingHelp } from "../src/capture/help.js";
 
 const IOS = "Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko)";
 const safari = `${IOS} Version/26.0 Mobile/15E148 Safari/604.1`;
@@ -42,6 +42,8 @@ describe("help when the phone holds back the camera, location or compass", () =>
     expect(locationHelp(1, safari)).toContain("Location Services → Safari Websites → While Using the App, with Precise Location on");
     expect(locationHelp(1, chromeIOS)).toContain("Location Services → Chrome");
     expect(locationHelp(3, safari)).toContain("step out");
+    expect(waitingHelp(safari)).toContain("Location Services on, then Safari Websites → While Using the App");
+    expect(waitingHelp(chromeIOS)).toContain("then Chrome → While Using the App");
     expect(approximateHelp(3200, safari)).toContain("±3.2 km");
     expect(approximateHelp(3200, safari)).toContain("Precise Location on");
     expect(APPROXIMATE_FIX_M).toBeGreaterThan(120);

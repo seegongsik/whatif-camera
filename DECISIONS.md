@@ -184,4 +184,5 @@
   - 앱 안 브라우저는 사용자 에이전트로 판별(KAKAOTALK, Line/, NAVER(inapp, DaumApps, BAND/, Instagram, FBAN/FBAV). 카톡은 `kakaotalk://web/openExternal?url=`, 라인은 `openExternalBrowser=1` 파라미터로 폰 브라우저에서 엶. 나머지는 ⋯ 메뉴 안내.
   - 카메라 오류 이름별 안내: 거부(NotAllowedError)는 설정 → 앱 → Safari(또는 Chrome) → 카메라, 미지원은 Safari·Chrome으로 열기, 사용 중은 다른 앱 닫기.
   - 위치 오류 코드별 안내, 그리고 오차 1 km 초과는 대략 위치로 보고 셔터를 막음(길 매칭 반경이 45~120 m라 그 이상은 엉뚱한 길이 됨).
+  - 위치도 오류도 8초 동안 안 오면(권한을 묻는 창이 안 뜬 경우: 기다리는 동안은 시간 초과도 안 남) 위치 서비스와 Safari 웹 사이트(또는 Chrome) 설정 경로를 안내. 민우 와이프 폰 증상(카메라는 나오는데 셔터가 흐림)이 이 경우.
 - 하지 않은 것: 동작 및 방향 권한을 거부한 뒤 다시 묻게 하는 방법 안내(아이폰 동작 확인 필요). 대신 D19의 방향 고르기로 계속 쓸 수 있음.

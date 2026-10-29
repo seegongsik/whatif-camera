@@ -7,7 +7,7 @@
  */
 import { LiveCamera } from "../capture/camera.js";
 import { readExif } from "../capture/exif.js";
-import { APPROXIMATE_FIX_M, approximateHelp, cameraHelp, inAppBrowser, locationHelp } from "../capture/help.js";
+import { APPROXIMATE_FIX_M, approximateHelp, cameraHelp, inAppBrowser, LOCATION_WAIT_MS, locationHelp, waitingHelp } from "../capture/help.js";
 import { Sensors, screenAngle } from "../capture/sensors.js";
 import { ASSUMED_FOV_LONG_DEG, gpsSigmaM, type CaptureMeta } from "../capture/types.js";
 import { intrinsicsFrom35mm, horizontalFovDeg, longSideFovDeg } from "../camera/pose.js";
@@ -390,7 +390,14 @@ export class App {
       if (screenAngle() !== 0) parts.push("hold the phone upright");
       hud.textContent = parts.join("  ·  ");
       const area = p !== null && street && p.accuracyM > APPROXIMATE_FIX_M;
-      const advice = !p && sensors.positionErrorCode ? locationHelp(sensors.positionErrorCode, navigator.userAgent) : p && area ? approximateHelp(p.accuracyM, navigator.userAgent) : "";
+      const advice =
+        !p && sensors.positionErrorCode
+          ? locationHelp(sensors.positionErrorCode, navigator.userAgent)
+          : !p && performance.now() - opened > LOCATION_WAIT_MS
+            ? waitingHelp(navigator.userAgent)
+            : p && area
+              ? approximateHelp(p.accuracyM, navigator.userAgent)
+              : "";
       if (help.textContent !== advice) help.textContent = advice;
       help.classList.toggle("hidden", !advice);
       shoot.toggleAttribute("disabled", !p || area);
