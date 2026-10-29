@@ -28,6 +28,7 @@ import {
 import { downloadJson, parsePreset, presetFrom, sceneFromPreset } from "../preset/preset.js";
 import { Player, pickRecordingType } from "../scene/player.js";
 import { syntheticScene } from "../synthetic/scene.js";
+import { addFieldShot, clearFieldLog, fieldLogText, fieldShot, readFieldLog, type FieldShot } from "../street/field-log.js";
 import type { StreetAhead } from "../street/street.js";
 import { syntheticStreet } from "../street/synthetic.js";
 import { StreetShow } from "../street/show.js";
@@ -49,6 +50,13 @@ const FAMOUS_STREETS = [
   { label: "Gangnam-daero, Seoul (north from Gangnam Station)", lat: 37.4985, lon: 127.0274, headingDeg: 343, street: "강남대로" },
   { label: "Fifth Avenue, New York (north from 42nd Street)", lat: 40.7536, lon: -73.9807, headingDeg: 29, street: "5th Avenue" },
   { label: "Robson Street, Vancouver (north-west from Burrard)", lat: 49.2838, lon: -123.1233, headingDeg: 315, street: "Robson Street" },
+];
+
+/** The eight directions to pick from when the phone has no compass, as they sit around you on a map. */
+const DIRECTIONS: ([string, number] | null)[] = [
+  ["NW", 315], ["N", 0], ["NE", 45],
+  ["W", 270], null, ["E", 90],
+  ["SW", 225], ["S", 180], ["SE", 135],
 ];
 
 export class App {
@@ -213,6 +221,7 @@ export class App {
         ),
         h("p", { class: "muted small", text: "Or fly down a street from the map alone:" }),
         h("div", { class: "street-places" }, ...FAMOUS_STREETS.map((s) => h("button", { onclick: () => void this.streetFor(s) }, s.label))),
+        this.fieldLogBox(readFieldLog()),
         photoInput,
         h("p", { class: "muted small", text: "Streets © OpenStreetMap contributors (ODbL); places © Overture Maps Foundation (CDLA-Permissive-2.0). Places change; the map may be out of date." }),
         h("p", { class: "muted small" }, h("a", { href: "?mode=building" }, "Building what-if (the earlier prototype)")),
@@ -223,6 +232,9 @@ export class App {
   private async streetFor(at: { lat: number; lon: number; headingDeg: number; street?: string }, photo?: HTMLCanvasElement, capture?: CaptureMeta): Promise<void> {
     // The show starts at once: its radar runs while the street is looked up.
     const show = this.openShow(at, photo, capture, () => void this.streetFor(at, photo, capture));
+    const asked = performance.now();
+    // Shots from the phone go in the field log, to look into later.
+    const log = (outcome: StreetAhead | string) => capture && addFieldShot(fieldShot(capture, (performance.now() - asked) / 1000, outcome));
     try {
       const query = new URLSearchParams({ lat: String(at.lat), lon: String(at.lon), heading: String(at.headingDeg) });
       if (at.street) query.set("street", at.street);
@@ -230,9 +242,69 @@ export class App {
       const body = (await res.json().catch(() => ({}))) as Partial<StreetAhead> & { error?: string };
       if (!res.ok || !body.route) throw new Error(body.error ?? `The street lookup answered ${res.status}.`);
       show.load(body as StreetAhead);
+      log(body as StreetAhead);
     } catch (error) {
-      show.fail(error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      show.fail(message);
+      log(message);
     }
+  }
+
+  /** The shots taken on this phone, to copy and send when a street came out wrong. */
+  private fieldLogBox(shots: FieldShot[]): HTMLElement | null {
+    if (shots.length === 0) return null;
+    const text = fieldLogText(shots, `${location.origin}${location.pathname}`);
+    const area = h("textarea", { class: "field-log-text", readonly: "", rows: 5, spellcheck: "false" });
+    area.value = text;
+    const copy = h("button", {}, "Copy");
+    copy.addEventListener("click", () => {
+      const select = () => {
+        area.focus();
+        area.select();
+      };
+      if (navigator.clipboard) navigator.clipboard.writeText(text).then(() => (copy.textContent = "Copied"), select);
+      else select();
+    });
+    const clear = h("button", { class: "ghost" }, "Clear");
+    clear.addEventListener("click", () => {
+      clearFieldLog();
+      this.home();
+    });
+    return h(
+      "details",
+      { class: "field-log" },
+      h("summary", { text: `Field log · ${shots.length} shot${shots.length === 1 ? "" : "s"} on this phone` }),
+      h("p", { class: "muted small", text: "Where each photo was taken, where the phone faced and the street it found. It stays on this phone until you copy it." }),
+      area,
+      h("div", { class: "row" }, copy, clear),
+    );
+  }
+
+  /** No compass: the person says which way they faced, to the nearest of eight directions. */
+  private pickDirection(photo: HTMLCanvasElement, capture: CaptureMeta): void {
+    const go = (headingDeg: number) => {
+      const picked: CaptureMeta = { ...capture, headingDeg, headingAccuracyDeg: 22.5, headingSource: "manual" };
+      void this.streetFor({ lat: picked.lat, lon: picked.lon, headingDeg }, photo, picked);
+    };
+    const preview = h("canvas", { class: "thumb direction-photo" });
+    preview.width = photo.width;
+    preview.height = photo.height;
+    preview.getContext("2d")!.drawImage(photo, 0, 0);
+    this.screen(
+      h(
+        "main",
+        { class: "page" },
+        h("h2", { text: "Which way were you facing?" }),
+        h("p", { class: "muted small", text: "This phone gave no compass reading, so the direction comes from you: the nearest of the eight is close enough." }),
+        preview,
+        h(
+          "div",
+          { class: "direction-grid" },
+          ...DIRECTIONS.map((d) => (d ? h("button", { onclick: () => go(d[1]) }, d[0]) : h("span", { class: "direction-you", text: "YOU" }))),
+        ),
+        h("div", { class: "row" }, h("button", { class: "ghost", onclick: () => this.home() }, "Back")),
+      ),
+    );
   }
 
   private showStreet(street: StreetAhead): void {
@@ -285,14 +357,16 @@ export class App {
       const o = sensors.cameraOrientation();
       const p = sensors.latestPosition();
       const parts: string[] = [];
+      const street = this.mode === "street";
       if (o) {
-        parts.push(`${o.hasCompass ? `${Math.round(o.headingDeg)}° ${compassWord(o.headingDeg)}` : "no compass"}`);
+        parts.push(`${o.hasCompass ? `${Math.round(o.headingDeg)}° ${compassWord(o.headingDeg)}` : street ? "no compass: you pick the direction after the photo" : "no compass"}`);
         parts.push(`tilt ${fmt(o.pitchDeg, 0)}°`);
         level.style.transform = `rotate(${-o.rollDeg}deg) translateY(${o.pitchDeg * 4}px)`;
       } else if (sensors.motionDenied || performance.now() - opened > 3000) {
-        parts.push("no motion sensors: tilt comes from the photo");
+        parts.push(street ? "no motion sensors: you pick the direction after the photo" : "no motion sensors: tilt comes from the photo");
       } else parts.push("waiting for motion sensors");
-      parts.push(p ? `GPS ±${Math.round(p.accuracyM)} m` : sensors.positionError ?? "waiting for GPS");
+      // Past the street match's reach a fix may land on the next street over.
+      parts.push(p ? `GPS ±${Math.round(p.accuracyM)} m${street && p.accuracyM > 35 ? " (rough)" : ""}` : sensors.positionError ?? "waiting for GPS");
       if (screenAngle() !== 0) parts.push("hold the phone upright");
       hud.textContent = parts.join("  ·  ");
       shoot.toggleAttribute("disabled", !p);
@@ -328,7 +402,8 @@ export class App {
         raw: o ? { ...o.raw, screenAngle: screenAngle() } : { screenAngle: screenAngle() },
       };
       this.stopLive();
-      if (this.mode === "street") void this.streetFor({ lat: capture.lat, lon: capture.lon, headingDeg: capture.headingDeg }, photo, capture);
+      if (this.mode === "street" && capture.headingSource === "manual") this.pickDirection(photo, capture);
+      else if (this.mode === "street") void this.streetFor({ lat: capture.lat, lon: capture.lon, headingDeg: capture.headingDeg }, photo, capture);
       else void this.withFootprints(photo, capture, "Live capture");
     });
     this.screen(h("main", { class: "camera" }, camera.video, level, hud, h("div", { class: "camera-bar" }, back, shoot)));

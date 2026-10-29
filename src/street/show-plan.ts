@@ -325,6 +325,23 @@ export function easeInOut(t: number): number {
   return x < 0.5 ? 4 * x * x * x : 1 - (-2 * x + 2) ** 3 / 2;
 }
 
+/** Past 1 and back: a pop that overshoots by about a tenth. */
+export function easeOutBack(t: number): number {
+  const x = Math.min(1, Math.max(0, t));
+  const c1 = 1.70158;
+  return 1 + (c1 + 1) * (x - 1) ** 3 + c1 * (x - 1) ** 2;
+}
+
+/** How long a place's arrival rings out, milliseconds. */
+export const IMPACT_MS = 900;
+
+/** The camera's punch when the light reaches a landmark: in fast (140 ms), out slowly; 0 outside 0–700 ms. */
+export function impactPunch(ageMs: number): number {
+  if (ageMs <= 0 || ageMs >= 700) return 0;
+  if (ageMs < 140) return 1 - (1 - ageMs / 140) ** 2;
+  return 1 - easeInOut((ageMs - 140) / 560);
+}
+
 /** Between two poses: the shorter way round, distance on a log scale so a zoom feels even. */
 export function lerpPose(a: Pose, b: Pose, t: number): Pose {
   const k = Math.min(1, Math.max(0, t));

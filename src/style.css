@@ -807,9 +807,18 @@ main.show {
   right: 48px;
   padding: 10px 16px 10px 16px;
   border-left: 3px solid var(--c);
+  overflow: hidden;
   background: linear-gradient(90deg, rgba(0, 0, 0, 0.82) 0%, rgba(0, 0, 0, 0.62) 60%, rgba(0, 0, 0, 0) 100%);
   pointer-events: none;
-  animation: show-caption 0.45s cubic-bezier(0.2, 0.9, 0.2, 1);
+}
+
+/* A sweep of light across the caption as it arrives (moved by the show's clock). */
+.show-caption-glint {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 35%, rgba(255, 255, 255, 0.3) 50%, transparent 65%);
+  transform: translateX(-120%);
+  pointer-events: none;
 }
 
 .show-caption.hidden {
@@ -844,16 +853,6 @@ main.show {
   color: rgba(255, 255, 255, 0.78);
 }
 
-@keyframes show-caption {
-  from {
-    opacity: 0;
-    transform: translateX(-16px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
 
 .show-bar-part {
   min-width: 2px;
@@ -1199,6 +1198,11 @@ body.street-mode {
   background: radial-gradient(120% 70% at 50% 0%, #0b1522 0%, #000 70%) fixed #000;
 }
 
+/* Below a short page (the direction picker) the root shows, not the body. */
+html:has(> body.street-mode) {
+  background: #000;
+}
+
 body.street-mode button.primary,
 body.street-mode .button.primary {
   border-color: var(--accent);
@@ -1236,5 +1240,54 @@ body.street-mode .street-places button {
   justify-content: flex-start;
   border-radius: 14px;
   text-align: left;
+}
+
+/* No compass: the eight directions around "you", as on a map. */
+.direction-photo {
+  max-height: 30vh;
+  object-fit: cover;
+}
+
+.direction-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  max-width: 300px;
+  margin: 16px auto;
+}
+
+.direction-grid button {
+  min-height: 58px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.direction-you {
+  display: grid;
+  place-items: center;
+  font: 600 11px/1 var(--mono);
+  letter-spacing: 0.2em;
+  color: var(--accent);
+}
+
+/* The shots taken on this phone, to copy and send. */
+.field-log {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.field-log summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.field-log-text {
+  width: 100%;
+  box-sizing: border-box;
+  font: 11px/1.45 var(--mono);
+  white-space: pre;
+  overflow-x: auto;
 }
 
