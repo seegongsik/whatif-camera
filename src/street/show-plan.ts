@@ -260,8 +260,8 @@ export function lightRun(from: number, to: number, stops: readonly number[], pac
 
 /** Where the camera looks: a point on the ground, the compass direction, how far down, from how far. */
 export type Pose = { x: number; y: number; yawDeg: number; pitchDeg: number; distance: number };
-/** The screen, CSS pixels, and the vertical field of view. */
-export type View = { width: number; height: number; fovDeg: number };
+/** The screen, CSS pixels, and the vertical field of view; `centerX` moves the picture's centre off the middle (default: the middle). */
+export type View = { width: number; height: number; fovDeg: number; centerX?: number };
 export type Projected = { x: number; y: number; depth: number; pxPerM: number };
 export type Insets = { top: number; right: number; bottom: number; left: number };
 
@@ -293,7 +293,7 @@ export function project(pose: Pose, view: View, p: EN, z = 0): Projected | null 
   const f = focalPx(view);
   const pxPerM = f / depth;
   return {
-    x: view.width / 2 + (v.x * a.right.x + v.y * a.right.y) * pxPerM,
+    x: (view.centerX ?? view.width / 2) + (v.x * a.right.x + v.y * a.right.y) * pxPerM,
     y: view.height / 2 - (v.x * a.up.x + v.y * a.up.y + v.z * a.up.z) * pxPerM,
     depth,
     pxPerM,
@@ -312,7 +312,7 @@ export function projector(pose: Pose, view: View): (p: EN, z?: number) => Projec
     if (depth < 1) return null;
     const pxPerM = f / depth;
     return {
-      x: view.width / 2 + (vx * a.right.x + vy * a.right.y) * pxPerM,
+      x: (view.centerX ?? view.width / 2) + (vx * a.right.x + vy * a.right.y) * pxPerM,
       y: view.height / 2 - (vx * a.up.x + vy * a.up.y + vz * a.up.z) * pxPerM,
       depth,
       pxPerM,
@@ -479,6 +479,23 @@ export function dotSpot(route: Route, shop: ShopAhead): EN {
   const h = rad(headingDeg);
   const off = dotOffset(shop);
   return { x: at.x + Math.cos(h) * off, y: at.y - Math.sin(h) * off };
+}
+
+/**
+ * The side of the screen a place's tag belongs on: the street's left, as
+ * you go along it, is the screen's left while the street runs up the
+ * screen, and its right where the street turns back down. Where the street
+ * runs straight across the screen, the place's own side.
+ */
+export function screenSide(project: (p: EN) => Projected | null, route: Route, shop: { s: number; side: "left" | "right" }): "left" | "right" {
+  const a = project(pointAt(route, shop.s - 15).at);
+  const b = project(pointAt(route, shop.s + 15).at);
+  if (!a || !b) return shop.side;
+  // Left of the direction of travel on the screen (y grows downward): (dy, -dx).
+  const leftX = b.y - a.y;
+  if (Math.abs(leftX) < 0.05 * Math.hypot(b.x - a.x, b.y - a.y)) return shop.side;
+  const leftIsScreenLeft = leftX < 0;
+  return (shop.side === "left") === leftIsScreenLeft ? "left" : "right";
 }
 
 /** The street every `stepM` metres from its start to its end, with the distance along at each point. */
