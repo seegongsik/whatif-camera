@@ -5,11 +5,13 @@ import {
   brandCounts,
   chaseTrack,
   dotOffset,
+  easeOutBack,
   fameScore,
   followPose,
   GROUPS,
   groupOf,
   histogram,
+  impactPunch,
   kindWord,
   landmarkCount,
   lerpPose,
@@ -138,6 +140,25 @@ describe("the light", () => {
     for (let t = 0.1; t < run.duration; t += 0.1) expect(chase(t)).toBeLessThanOrEqual(run.at(t) + 1e-6);
     expect(chase(run.duration * 0.3)).toBeLessThan(run.at(run.duration * 0.3) - 50);
     expect(chase(run.duration + 5)).toBeCloseTo(3000, 0);
+  });
+});
+
+describe("a landmark's arrival", () => {
+  it("pops past full size and settles", () => {
+    expect(easeOutBack(0)).toBeCloseTo(0, 9);
+    expect(easeOutBack(1)).toBeCloseTo(1, 9);
+    const peak = Math.max(...Array.from({ length: 101 }, (_, i) => easeOutBack(i / 100)));
+    expect(peak).toBeGreaterThan(1.05);
+    expect(peak).toBeLessThan(1.15);
+  });
+
+  it("punches the camera in fast and lets it out slowly, then not at all", () => {
+    expect(impactPunch(0)).toBe(0);
+    expect(impactPunch(140)).toBeCloseTo(1, 9);
+    expect(impactPunch(70)).toBeGreaterThan(0.5);
+    expect(impactPunch(400)).toBeLessThan(impactPunch(200));
+    expect(impactPunch(700)).toBe(0);
+    expect(impactPunch(-10)).toBe(0);
   });
 });
 

@@ -20,6 +20,9 @@ import {
   chaseTrack,
   dotSpot,
   easeInOut,
+  easeOutBack,
+  IMPACT_MS,
+  impactPunch,
   FOLLOW,
   followPose,
   groupOf,
@@ -161,6 +164,8 @@ export class StreetShow {
   private insets = { top: 120, bottom: 170 };
   private labels: PlacedLabel<LabelItem>[] = [];
   private roadOnScreen: ScreenPoint[][] = [];
+  /** Landmarks whose arrival has buzzed the phone in this run. */
+  private felt = new Set<string>();
   private selected: ShopAhead | null = null;
   private spotted = new Set<string>();
   private vignette: HTMLCanvasElement | null = null;
@@ -370,6 +375,7 @@ export class StreetShow {
     const born = new Map<string, number>();
     for (const shop of street.shops) if (!focus || focus.match(shop)) born.set(shop.id, start + light.when(shop.s) * 1000);
     this.run = { focus, first, from: first ? radarPose(this.options.headingDeg) : this.lastPose, beginAt: at, moveMs, start, light, chase: chaseTrack(light), born };
+    this.felt.clear();
     this.phase = "run";
     this.skipEl.textContent = "Skip ›";
     this.skipEl.removeAttribute("aria-label");
@@ -412,6 +418,13 @@ export class StreetShow {
       case "run": {
         const run = this.run!;
         const follow = followPose(this.route!, run.chase((now - run.start) / 1000), run.first ? FOLLOW : TOUR_FOLLOW);
+        // A short punch in towards each landmark as the light reaches it.
+        let punch = 0;
+        for (const shop of this.focus ? this.focus.picks : this.landmarks) {
+          const born = run.born.get(shop.id);
+          if (born !== undefined) punch = Math.max(punch, impactPunch(now - born));
+        }
+        follow.distance *= 1 - (run.first ? 0.08 : 0.045) * punch;
         const k = easeInOut((now - run.beginAt) / run.moveMs);
         return k >= 1 ? follow : lerpPose(run.from, follow, k);
       }
@@ -981,14 +994,12 @@ export class StreetShow {
       if (!q) return;
       const color = this.shopColor(shop);
       const age = now - born;
-      ctx.globalCompositeOperation = "lighter";
-      if (age < 700) {
-        const k = 1 - age / 700;
-        const size = 12 + 70 * k;
-        ctx.globalAlpha = k;
-        ctx.drawImage(glow(color, true), q.x - size / 2, q.y - size / 2, size, size);
-        ctx.globalAlpha = 1;
+      if (age < IMPACT_MS) this.drawImpact(project, this.spots.get(shop.id)!, q, age, color, this.lastPose);
+      if (age >= 0 && age < IMPACT_MS && this.run?.first && !this.felt.has(shop.id)) {
+        this.felt.add(shop.id);
+        navigator.vibrate?.(14);
       }
+      ctx.globalCompositeOperation = "lighter";
       ctx.strokeStyle = rgba(color, 0.85);
       ctx.lineWidth = 1.2;
       ctx.beginPath();
@@ -1021,6 +1032,54 @@ export class StreetShow {
     for (const label of this.labels) this.drawLabel(label, now);
   }
 
+  /**
+   * A landmark's arrival: two rings run out over the ground from it, a
+   * flash at the place and a wash of its colour over the picture. Strongest
+   * in the first run (the landmarks), lighter in tours.
+   */
+  private drawImpact(project: (p: EN, z?: number) => Projected | null, spot: EN, q: Projected, age: number, color: string, pose: Pose): void {
+    const ctx = this.ctx;
+    const strength = this.run?.first ? 1 : this.focus?.quest ? 0.8 : 0.6;
+    ctx.globalCompositeOperation = "lighter";
+    for (let k = 0; k < 2; k += 1) {
+      const t = (age - k * 140) / IMPACT_MS;
+      if (t <= 0 || t >= 1) continue;
+      const r = 4 + pose.distance * 0.16 * (1 - (1 - t) ** 3);
+      ctx.strokeStyle = rgba(color, 0.9 * strength * (1 - t) ** 2);
+      ctx.lineWidth = 2.6 * (1 - t) + 0.6;
+      ctx.beginPath();
+      let open = false;
+      for (let i = 0; i <= 48; i += 1) {
+        const a = (i / 48) * Math.PI * 2;
+        const p = project({ x: spot.x + Math.cos(a) * r, y: spot.y + Math.sin(a) * r });
+        if (!p) {
+          open = false;
+          continue;
+        }
+        if (open) ctx.lineTo(p.x, p.y);
+        else ctx.moveTo(p.x, p.y);
+        open = true;
+      }
+      ctx.stroke();
+    }
+    if (age < 600) {
+      const k = 1 - age / 600;
+      const size = 16 + 150 * k * k;
+      ctx.globalAlpha = k;
+      ctx.drawImage(glow(color, true), q.x - size / 2, q.y - size / 2, size, size);
+      ctx.globalAlpha = 1;
+    }
+    if (age < 450) {
+      const { width: w, height: hgt } = this.view;
+      const wash = ctx.createRadialGradient(q.x, q.y, 0, q.x, q.y, Math.max(w, hgt) * 0.8);
+      wash.addColorStop(0, rgba(color, 0.22 * strength * (1 - age / 450) ** 2));
+      wash.addColorStop(1, rgba(color, 0));
+      ctx.fillStyle = wash;
+      ctx.fillRect(0, 0, w, hgt);
+    }
+    ctx.globalCompositeOperation = "source-over";
+  }
+
   /** The lowest a tag may reach: above the bottom bar, and above the caption while the light runs. */
   private labelBottom(): number {
     let bottom = this.view.height - this.insets.bottom;
@@ -1036,14 +1095,22 @@ export class StreetShow {
   private drawLabel(label: PlacedLabel<LabelItem>, now: number): void {
     const ctx = this.ctx;
     const born = label.item.shop ? (this.bornAt(label.item.shop) ?? -Infinity) : -Infinity;
-    const t = Math.min(1, Math.max(0, (now - born) / 240));
-    const k = 0.9 + 0.1 * easeInOut(t);
+    const age = now - born;
+    const fresh = Number.isFinite(born) && age < 420;
+    const k = fresh ? 0.55 + 0.45 * easeOutBack(age / 360) : 1;
     ctx.save();
-    ctx.globalAlpha = Number.isFinite(born) ? t : 1;
+    ctx.globalAlpha = fresh ? Math.min(1, age / 160) : 1;
     ctx.translate(label.x, label.y);
     ctx.scale(k, k);
     ctx.translate(-label.x, -label.y);
     drawTag(ctx, label);
+    if (fresh) {
+      ctx.strokeStyle = `rgba(255,255,255,${0.9 * (1 - age / 420)})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(label.box.x, label.box.y, label.box.w, label.box.h, 6 * (label.font / 13));
+      ctx.stroke();
+    }
     ctx.restore();
   }
 
@@ -1127,13 +1194,24 @@ export class StreetShow {
     const run = this.run;
     const picks = this.focus ? this.focus.picks : this.landmarks;
     let index = -1;
+    let since = 0;
     if (run && this.phase === "run") {
       picks.forEach((shop, i) => {
         const born = run.born.get(shop.id);
-        if (born !== undefined && born <= now && now - born < 2000) index = i;
+        if (born !== undefined && born <= now && now - born < 2000) {
+          index = i;
+          since = now - born;
+        }
       });
     }
     const shop = index >= 0 ? picks[index] : null;
+    // It slides in with a sweep of light across it, timed by the show's clock (so recordings have it too).
+    if (shop) {
+      this.captionEl.style.opacity = String(Math.min(1, since / 220));
+      this.captionEl.style.transform = `translateX(${(-28 * (1 - easeOutBack(since / 420))).toFixed(1)}px)`;
+      const glint = this.captionEl.querySelector<HTMLElement>(".show-caption-glint");
+      if (glint) glint.style.transform = `translateX(${(-120 + 240 * easeInOut((since - 80) / 700)).toFixed(1)}%)`;
+    }
     const key = shop ? `${this.focus?.key ?? "all"}:${shop.id}` : "";
     if (key === this.captionKey) return;
     this.captionKey = key;
@@ -1150,10 +1228,8 @@ export class StreetShow {
       h("div", { class: "show-caption-k", text: `${what} ${index + 1} / ${picks.length} · ${distanceText(shop.s).toUpperCase()} · ${kindWord(shop.kind).toUpperCase()}` }),
       h("div", { class: "show-caption-name", text: shop.name }),
       line ? h("div", { class: "show-caption-line", text: line }) : "",
+      h("div", { class: "show-caption-glint" }),
     );
-    // Restart the entrance.
-    this.captionEl.classList.add("hidden");
-    void this.captionEl.offsetWidth;
     this.captionEl.classList.remove("hidden");
   }
 
