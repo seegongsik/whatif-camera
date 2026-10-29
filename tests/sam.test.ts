@@ -83,4 +83,20 @@ describe("SAM 3.1 shop signs", () => {
     expect(answer.prompt).toBe("signboard");
     expect((await handleSam(post({ image: IMAGE }), { env, fetchImpl })).status).toBe(429);
   });
+
+  it("asks for \"sign\" unless told otherwise, and can be switched off on the server", async () => {
+    expect(SIGN_PROMPT).toBe("sign");
+    const post = (body: unknown) => new Request("http://x/api/sam", { method: "POST", body: JSON.stringify(body) });
+    let called = false;
+    const fetchImpl = (async () => {
+      called = true;
+      return Response.json(reply(SAMPLE));
+    }) as unknown as typeof fetch;
+    const off = await handleSam(post({ image: IMAGE }), { env: { MODEL_API_KEY: "k", SAM_DISABLED: "1" }, fetchImpl });
+    expect(off.status).toBe(503);
+    expect((await off.json()).error).toContain("SAM_DISABLED");
+    expect(called).toBe(false);
+    const on = await handleSam(post({ image: IMAGE }), { env: { MODEL_API_KEY: "k" }, fetchImpl });
+    expect(((await on.json()) as { prompt: string }).prompt).toBe("sign");
+  });
 });

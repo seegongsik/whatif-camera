@@ -341,7 +341,9 @@ export class App {
     // Where no street (or no place) is found, the nearest famous street is one tap away.
     const near = nearestStreet(FAMOUS_STREETS, at);
     const elsewhere = near ? { label: near.short, go: () => void this.streetFor(near) } : undefined;
-    const show = new StreetShow({ origin: { lat: at.lat, lon: at.lon }, headingDeg: at.headingDeg, photo, capture, onClose: () => this.home(), onRetry, elsewhere });
+    // ?sam=0 leaves SAM 3.1 out, to compare the sign check with and without it.
+    const sam = params.get("sam") !== "0";
+    const show = new StreetShow({ origin: { lat: at.lat, lon: at.lon }, headingDeg: at.headingDeg, photo, capture, onClose: () => this.home(), onRetry, elsewhere, sam });
     this.screen(show.element);
     this.streetShow = show;
     show.start();

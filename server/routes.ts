@@ -14,7 +14,7 @@ import { questWithSpark, signsWithSpark } from "./street-spark.js";
 import { isSignPrompt, SamError, SIGN_PROMPT, SIGN_PROMPTS, signsWithSam } from "./sam.js";
 import { SHOP_CATEGORIES, type ShopCategory } from "../src/street/osm.js";
 import { isQuestTheme, type QuestPlace } from "../src/street/quest.js";
-import type { SpotPlace } from "../src/street/spotted.js";
+import { MAX_SIGN_BOXES, type SpotPlace } from "../src/street/spotted.js";
 
 /** Large enough for a 1280 px JPEG, well under the 4.5 MB function body limit. */
 export const MAX_IMAGE_DATA_URL_CHARS = 2_500_000;
@@ -153,7 +153,7 @@ export async function handleQuest(request: Request, deps: Deps = {}): Promise<Re
   }
 }
 
-/** POST {image, places}: which of the mapped places Muse Spark Open can read in the photo. */
+/** POST {image, places, boxes?}: which of the mapped places Muse Spark Open can read in the photo (boxes: numbered SAM 3.1 boxes drawn on it). */
 export async function handleSigns(request: Request, deps: Deps = {}): Promise<Response> {
   if (request.method !== "POST") return json({ error: "use POST" }, 405);
   const body = await jsonBody(request);
@@ -162,17 +162,22 @@ export async function handleSigns(request: Request, deps: Deps = {}): Promise<Re
   if (problem) return json({ error: problem }, 400);
   const places = placesFrom(body.places, 40);
   if (!places) return json({ error: "places must be 1 to 40 distinct places with id, name, side and distanceM" }, 400);
+  // How many numbered SAM 3.1 boxes the page drew on the photo; none is the plain check.
+  const boxes = body.boxes ?? 0;
+  if (typeof boxes !== "number" || !Number.isInteger(boxes) || boxes < 0 || boxes > MAX_SIGN_BOXES) {
+    return json({ error: `boxes must be a whole number from 0 to ${MAX_SIGN_BOXES}` }, 400);
+  }
   const gate = sparkGate(deps, "shows the map's labels without the check");
   if (gate) return gate;
   try {
     const spotPlaces = places.map(({ id, name, side, distanceM }) => ({ id, name, side, distanceM }));
-    return json(await signsWithSpark(spotPlaces, body.image as string, deps));
+    return json(await signsWithSpark(spotPlaces, body.image as string, deps, boxes));
   } catch (error) {
     return sparkFailure(error, "sign check");
   }
 }
 
-/** POST {image, prompt?}: every shop sign in the photo, found by SAM 3.1, as boxes and outlines. */
+/** POST {image, prompt?}: every sign in the photo, found by SAM 3.1, as boxes and outlines ("sign" unless another phrase from the menu is asked for). */
 export async function handleSam(request: Request, deps: Deps = {}): Promise<Response> {
   if (request.method !== "POST") return json({ error: "use POST" }, 405);
   const body = await jsonBody(request);
@@ -182,6 +187,8 @@ export async function handleSam(request: Request, deps: Deps = {}): Promise<Resp
   const prompt = body.prompt === undefined ? SIGN_PROMPT : isSignPrompt(body.prompt) ? body.prompt : null;
   if (prompt === null) return json({ error: `prompt must be one of: ${SIGN_PROMPTS.join(", ")}` }, 400);
   const env = deps.env ?? process.env;
+  // A switch to turn SAM off on this server without a code change; the page goes on as before.
+  if (env.SAM_DISABLED === "1") return json({ error: "SAM is switched off on this server (SAM_DISABLED); the page goes on without it" }, 503);
   if (!keyPresence(env).modelApiKeyConfigured) return json({ error: "MODEL_API_KEY is not configured; the page goes on without the cut-outs" }, 503);
   if (!takeCall("sam", (deps.now ?? Date.now)(), env)) return json({ error: "daily SAM calls for this server instance are used up" }, 429);
   try {
