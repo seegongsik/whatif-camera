@@ -12,7 +12,7 @@ export class LiveCamera {
 
   async start(): Promise<void> {
     if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error("This browser cannot open the camera (it needs HTTPS).");
+      throw Object.assign(new Error("This browser cannot open the camera (it needs HTTPS)."), { name: "NotSupportedError" });
     }
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: false,

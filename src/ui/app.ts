@@ -7,6 +7,7 @@
  */
 import { LiveCamera } from "../capture/camera.js";
 import { readExif } from "../capture/exif.js";
+import { APPROXIMATE_FIX_M, approximateHelp, cameraHelp, inAppBrowser, locationHelp } from "../capture/help.js";
 import { Sensors, screenAngle } from "../capture/sensors.js";
 import { ASSUMED_FOV_LONG_DEG, gpsSigmaM, type CaptureMeta } from "../capture/types.js";
 import { intrinsicsFrom35mm, horizontalFovDeg, longSideFovDeg } from "../camera/pose.js";
@@ -180,6 +181,7 @@ export class App {
         h("h1", {}, "What if", h("span", { class: "accent", text: "?" })),
         h("p", { class: "lead", text: "Point your phone at a building. One photo and the map turn it into a 3D model with its measurements, then you see what it could become." }),
         error ? h("p", { class: "error", text: error }) : null,
+        this.inAppNote(),
         h("button", { class: "primary big", onclick: () => void this.openCamera() }, "Open camera"),
         h("div", { class: "row" },
           h("button", { onclick: () => photoInput.click() }, "Use a photo"),
@@ -212,6 +214,7 @@ export class App {
           text: "Point your phone down a street and take one photo. A light runs 5 km down the street, dotting every place the map knows at its distance and side, and stops at the landmarks. Then tap Restaurants, Cafés, Shops… to send it down the street again for just those.",
         }),
         error ? h("p", { class: "error", text: error }) : null,
+        this.inAppNote(),
         h("button", { class: "primary big", onclick: () => void this.openCamera() }, "Open camera"),
         h(
           "div",
@@ -226,6 +229,21 @@ export class App {
         h("p", { class: "muted small", text: "Streets © OpenStreetMap contributors (ODbL); places © Overture Maps Foundation (CDLA-Permissive-2.0). Places change; the map may be out of date." }),
         h("p", { class: "muted small" }, h("a", { href: "?mode=building" }, "Building what-if (the earlier prototype)")),
       ),
+    );
+  }
+
+  /** Opened inside a chat or social app, whose browser often refuses the camera, location and compass: how to get out. */
+  private inAppNote(): HTMLElement | null {
+    const inApp = inAppBrowser(navigator.userAgent, location.href);
+    if (!inApp) return null;
+    return h(
+      "div",
+      { class: "in-app" },
+      h("strong", { text: `Opened inside ${inApp.app}` }),
+      h("p", { text: `${inApp.app}'s built-in browser often blocks the camera, location and compass this page needs. Open it in Safari or Chrome.` }),
+      inApp.open
+        ? h("a", { class: "button primary", href: inApp.open }, "Open in the phone's browser")
+        : h("p", { class: "muted small", text: `In ${inApp.app}: the ⋯ menu → Open in Safari (or in another browser).` }),
     );
   }
 
@@ -340,7 +358,7 @@ export class App {
     } catch (error) {
       sensors.stop();
       camera.stop();
-      this.home(error instanceof Error ? error.message : String(error));
+      this.home(cameraHelp(error, navigator.userAgent));
       return;
     }
     this.sensors = sensors;
@@ -349,6 +367,8 @@ export class App {
     const fovGiven = Number.isFinite(fovParam) && fovParam >= 20 && fovParam <= 120;
     const fov = fovGiven ? fovParam : ASSUMED_FOV_LONG_DEG;
     const hud = h("div", { class: "hud" });
+    // What to change when location is refused or only a rough area.
+    const help = h("p", { class: "camera-help hidden" });
     const level = h("div", { class: "level" });
     const shoot = h("button", { class: "shutter", "aria-label": "Take the photo" });
     const back = h("button", { class: "ghost on-dark", onclick: () => this.home() }, "Back");
@@ -365,18 +385,22 @@ export class App {
       } else if (sensors.motionDenied || performance.now() - opened > 3000) {
         parts.push(street ? "no motion sensors: you pick the direction after the photo" : "no motion sensors: tilt comes from the photo");
       } else parts.push("waiting for motion sensors");
-      // Past the street match's reach a fix may land on the next street over.
-      parts.push(p ? `GPS ±${Math.round(p.accuracyM)} m${street && p.accuracyM > 35 ? " (rough)" : ""}` : sensors.positionError ?? "waiting for GPS");
+      // Past the street match's reach a fix may land on the next street over; past a kilometre it is only an area.
+      parts.push(p ? `GPS ±${Math.round(p.accuracyM)} m${street && p.accuracyM > 35 ? " (rough)" : ""}` : sensors.positionErrorCode === 1 ? "location blocked" : sensors.positionError ?? "waiting for GPS");
       if (screenAngle() !== 0) parts.push("hold the phone upright");
       hud.textContent = parts.join("  ·  ");
-      shoot.toggleAttribute("disabled", !p);
+      const area = p !== null && street && p.accuracyM > APPROXIMATE_FIX_M;
+      const advice = !p && sensors.positionErrorCode ? locationHelp(sensors.positionErrorCode, navigator.userAgent) : p && area ? approximateHelp(p.accuracyM, navigator.userAgent) : "";
+      if (help.textContent !== advice) help.textContent = advice;
+      help.classList.toggle("hidden", !advice);
+      shoot.toggleAttribute("disabled", !p || area);
     };
     sensors.onChange = update;
     this.hudTimer = window.setInterval(update, 400);
     shoot.addEventListener("click", () => {
       const o = sensors.cameraOrientation();
       const p = sensors.latestPosition();
-      if (!p) return;
+      if (!p || (this.mode === "street" && p.accuracyM > APPROXIMATE_FIX_M)) return;
       window.clearInterval(this.hudTimer);
       let photo: HTMLCanvasElement;
       try {
@@ -406,7 +430,7 @@ export class App {
       else if (this.mode === "street") void this.streetFor({ lat: capture.lat, lon: capture.lon, headingDeg: capture.headingDeg }, photo, capture);
       else void this.withFootprints(photo, capture, "Live capture");
     });
-    this.screen(h("main", { class: "camera" }, camera.video, level, hud, h("div", { class: "camera-bar" }, back, shoot)));
+    this.screen(h("main", { class: "camera" }, camera.video, level, h("div", { class: "camera-top" }, hud, help), h("div", { class: "camera-bar" }, back, shoot)));
     update();
   }
 
