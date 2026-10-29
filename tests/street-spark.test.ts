@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { bannedTerms, cleanLine, localQuest, parseQuest, questPlaces, type QuestPlace } from "../src/street/quest.js";
 import { parseSpotted, spotPlaces } from "../src/street/spotted.js";
 import { syntheticStreet } from "../src/street/synthetic.js";
-import { buildQuestMessages } from "../server/street-spark.js";
+import { buildQuestMessages, buildSignsMessages, SIGNS_BOXED_SYSTEM_PROMPT, SIGNS_SYSTEM_PROMPT } from "../server/street-spark.js";
 import { handleQuest, handleSigns } from "../server/routes.js";
 import { resetLimitsForTests } from "../server/limits.js";
 
@@ -143,6 +143,36 @@ describe("signs in the photo (SYNTHETIC)", () => {
     expect(spotted).toEqual({ seen: [{ id: spots[0].id, where: "left" }, { id: spots[1].id, where: "middle" }], view: "unclear" });
   });
 
+  it("takes a box number only when boxes were drawn and it is one of them", () => {
+    const answer = {
+      seen: [
+        { id: spots[0].id, where: "left", box: 2 },
+        { id: spots[1].id, where: "right", box: 9 },
+        { id: spots[2].id, where: "middle", box: 0 },
+        { id: spots[3].id, where: "middle", box: 1.5 },
+      ],
+      view: "along",
+    };
+    expect(parseSpotted(answer, spots, 3).seen).toEqual([
+      { id: spots[0].id, where: "left", box: 2 },
+      { id: spots[1].id, where: "right" },
+      { id: spots[2].id, where: "middle" },
+      { id: spots[3].id, where: "middle" },
+    ]);
+    // Without boxes on the photo a number means nothing.
+    expect(parseSpotted(answer, spots).seen.every((x) => !("box" in x))).toBe(true);
+  });
+
+  it("asks as before without boxes, and with them says how many there are", () => {
+    const [plainSystem, plainUser] = buildSignsMessages(spots, image);
+    expect(plainSystem.content).toBe(SIGNS_SYSTEM_PROMPT);
+    expect(JSON.stringify(plainUser.content)).not.toContain("box");
+    const [boxedSystem, boxedUser] = buildSignsMessages(spots, image, 7);
+    expect(boxedSystem.content).toBe(SIGNS_BOXED_SYSTEM_PROMPT);
+    expect(SIGNS_BOXED_SYSTEM_PROMPT).toContain("read names anywhere in the photo, inside a box or not");
+    expect(JSON.stringify(boxedUser.content)).toContain("The photo has 7 numbered boxes around signs.");
+  });
+
   it("checks the request, then sends the photo with the names", async () => {
     expect((await handleSigns(request({ image: "http://example.com/a.jpg", places: spots }), { env: {} })).status).toBe(400);
     expect((await handleSigns(request({ image, places: [] }), { env: {} })).status).toBe(400);
@@ -159,5 +189,20 @@ describe("signs in the photo (SYNTHETIC)", () => {
     const user = JSON.stringify(sent!.messages[1].content);
     expect(user).toContain(spots[1].name);
     expect(user).toContain('"image_url"');
+  });
+
+  it("passes the boxes on and keeps the number of the box a name was read in", async () => {
+    for (const boxes of [-1, 13, 1.5, "3"]) {
+      expect((await handleSigns(request({ image, places: spots, boxes }), { env: { BASETEN_API_KEY: "k" } })).status).toBe(400);
+    }
+    let sent: { messages: { content: unknown }[] } | null = null;
+    const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
+      sent = JSON.parse(String(init?.body));
+      return Response.json({ choices: [{ finish_reason: "stop", message: { content: `{"seen":[{"id":"${spots[0].id}","where":"left","box":3}],"view":"along"}` } }] });
+    }) as typeof fetch;
+    const res = await handleSigns(request({ image, places: spots, boxes: 4 }), { env: { BASETEN_API_KEY: "k" }, fetchImpl });
+    expect(res.status).toBe(200);
+    expect((await res.json()).spotted).toEqual({ seen: [{ id: spots[0].id, where: "left", box: 3 }], view: "along" });
+    expect(sent!.messages[0].content).toBe(SIGNS_BOXED_SYSTEM_PROMPT);
   });
 });

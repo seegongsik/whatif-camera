@@ -49,14 +49,27 @@ export const SIGNS_SYSTEM_PROMPT = [
   "Do not describe or identify people.",
 ].join(" ");
 
-export function buildSignsMessages(places: SpotPlace[], imageDataUrl: string): ChatMessage[] {
+/** The same check on a photo where SAM 3.1's signs are boxed and numbered: the boxes help the model look, they do not tell it what it reads. */
+export const SIGNS_BOXED_SYSTEM_PROMPT = [
+  "You check a street photo against a list of places mapped along the street ahead of the camera.",
+  "A segmentation model has drawn numbered yellow boxes around the signs it found. The boxes only help you look: read names anywhere in the photo, inside a box or not.",
+  "For each listed place whose name you can actually read in the photo (on a sign, an awning or a window), give its id, where it appears (the left, middle or right third of the picture), and the number of the box the name is in, or 0 when it is in no box.",
+  "Do not guess from the kind of shop or from the list; leave out names you cannot read.",
+  "Also say whether the photo looks along a street (the street runs away from the camera), across it (facing the building fronts), or neither.",
+  "Reply with exactly one JSON object and nothing else: {\"seen\": [{\"id\": \"...\", \"where\": \"left|middle|right\", \"box\": 0}], \"view\": \"along|across|unclear\"}.",
+  "Do not describe or identify people.",
+].join(" ");
+
+/** `boxes`: how many numbered SAM boxes are drawn on the photo; with none, the request is the plain check. */
+export function buildSignsMessages(places: SpotPlace[], imageDataUrl: string, boxes = 0): ChatMessage[] {
   const listed = places.map((p) => ({ id: p.id, name: p.name, side: p.side, metresAhead: p.distanceM }));
+  const list = `Places mapped along the street ahead (side as seen walking ahead):\n${JSON.stringify(listed)}`;
   return [
-    { role: "system", content: SIGNS_SYSTEM_PROMPT },
+    { role: "system", content: boxes > 0 ? SIGNS_BOXED_SYSTEM_PROMPT : SIGNS_SYSTEM_PROMPT },
     {
       role: "user",
       content: [
-        { type: "text", text: `Places mapped along the street ahead (side as seen walking ahead):\n${JSON.stringify(listed)}` },
+        { type: "text", text: boxes > 0 ? `${list}\nThe photo has ${boxes} numbered ${boxes === 1 ? "box" : "boxes"} around signs.` : list },
         { type: "image_url", image_url: { url: imageDataUrl } },
       ],
     },
@@ -100,11 +113,11 @@ export async function questWithSpark(
   return { quest, latencyMs: reply.latencyMs, model: MUSE_SPARK_OPEN_MODEL };
 }
 
-export async function signsWithSpark(places: SpotPlace[], imageDataUrl: string, deps: Deps = {}): Promise<{ spotted: Spotted; latencyMs: number; model: string }> {
-  const reply = await sparkChat(buildSignsMessages(places, imageDataUrl), { temperature: 0.2 }, deps);
+export async function signsWithSpark(places: SpotPlace[], imageDataUrl: string, deps: Deps = {}, boxes = 0): Promise<{ spotted: Spotted; latencyMs: number; model: string }> {
+  const reply = await sparkChat(buildSignsMessages(places, imageDataUrl, boxes), { temperature: 0.2 }, deps);
   let spotted: Spotted;
   try {
-    spotted = parseSpotted(answerObject(reply, "seen"), places);
+    spotted = parseSpotted(answerObject(reply, "seen"), places, boxes);
   } catch (error) {
     if (error instanceof SparkError) throw error;
     throw new SparkError(502, `the answer did not check out: ${error instanceof Error ? error.message : String(error)}`);

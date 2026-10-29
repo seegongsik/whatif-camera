@@ -7,7 +7,7 @@
  * street again for one kind of place. Drawn on a 2D canvas through the
  * perspective camera in show-plan.ts; buttons, chips and cards are HTML.
  */
-import { photoForModel } from "../capture/model-photo.js";
+import { modelCanvas, modelJpeg } from "../capture/model-photo.js";
 import type { CaptureMeta } from "../capture/types.js";
 import { normDeg, type EN } from "../geo/enu.js";
 import { h, svg } from "../ui/dom.js";
@@ -51,6 +51,7 @@ import {
 } from "./show-plan.js";
 import { drawTag, glow, MONO, rgba, SANS, tagMeasure, type TagStyle } from "./show-draw.js";
 import { distanceText } from "./signs.js";
+import { cutSign, drawSignBoxes, numberSigns, readSamReply, type SignBox } from "./sign-boxes.js";
 import { spotPlaces, type Spotted } from "./spotted.js";
 import { layoutLabels, roadSpan, type Box, type LabelInput, type PlacedLabel, type ScreenPoint } from "./street-labels.js";
 import { localRoute, type StreetAhead } from "./street.js";
@@ -59,6 +60,10 @@ import { localRoute, type StreetAhead } from "./street.js";
 const MIN_COMPUTE_MS = 2400;
 const PHOTO_SCAN_MS = 1000;
 const PHOTO_FOLD_MS = 800;
+/** The sign check waits this long at most for SAM 3.1's signs, then reads the plain photo as before. */
+const SAM_WAIT_MS = 3000;
+/** A sign's picture is cut from the full photo when it comes out at most this wide. */
+const CUT_MAX_PX = 420;
 /** The readings stay up this long once the street is in. */
 const HOLD_MS = 1000;
 /** The camera tilts from straight down to behind the light. */
@@ -86,6 +91,8 @@ export type StreetShowOptions = {
   onRetry?: () => void;
   /** A busier street to fly down when none (or no place) is found here: the nearest famous one. */
   elsewhere?: { label: string; go: () => void };
+  /** Ask SAM 3.1 for the signs in the photo (true unless the page says no, ?sam=0). */
+  sam?: boolean;
 };
 
 /** What the light is showing: every place (null), one kind of place, or a quest's stops. */
@@ -185,6 +192,15 @@ export class StreetShow {
   private felt = new Set<string>();
   private selected: ShopAhead | null = null;
   private spotted = new Set<string>();
+  /** The photo at the size Meta's models get, made once, and its JPEG. */
+  private model: { canvas: HTMLCanvasElement; jpeg: string } | null = null;
+  /** SAM 3.1 on the photo: not asked (no photo, or switched off), asking, answered, or failed (the page goes on without it). */
+  private samState: "off" | "asking" | "done" | "failed" = "off";
+  private samFound = 0;
+  private signBoxes: SignBox[] = [];
+  private samDone: Promise<void> = Promise.resolve();
+  /** Each place's sign cut out of the photo, for the places Muse Spark read in one of SAM's boxes. */
+  private signCuts = new Map<string, string>();
   private vignette: HTMLCanvasElement | null = null;
   private t0 = performance.now();
   private frozen: number | null = null;
@@ -244,6 +260,8 @@ export class StreetShow {
   start(): void {
     this.t0 = performance.now();
     this.onResize();
+    // SAM 3.1 looks for the signs while the street is looked up; nothing waits for it.
+    if (this.options.photo && this.options.sam !== false) this.samDone = this.findSigns();
     const tick = () => {
       this.raf = requestAnimationFrame(tick);
       this.frame(this.clock());
@@ -1277,6 +1295,8 @@ export class StreetShow {
     const dots = ".".repeat(1 + (Math.floor(now / 300) % 3));
     const rows: ConsoleRow[] = [];
     if (o.photo) rows.push({ id: "photo", key: "PHOTO", value: `${o.photo.width}×${o.photo.height}`, state: "done" });
+    if (this.samState === "asking") rows.push({ id: "signs", key: "SIGNS", value: `SAM 3.1 finding signs${dots}`, state: "wait" });
+    else if (this.samState === "done") rows.push({ id: "signs", key: "SIGNS", value: this.samFound > 0 ? `SAM 3.1 · ${this.samFound} in your photo` : "SAM 3.1 · none in view", state: "done" });
     const acc = o.capture ? ` ±${Math.round(o.capture.accuracyM)} m` : " (map point)";
     rows.push({ id: "gps", key: "GPS", value: `${o.origin.lat.toFixed(5)}, ${o.origin.lon.toFixed(5)}${acc}`, state: "done" });
     rows.push({ id: "heading", key: "HEADING", value: `${Math.round(normDeg(o.headingDeg))}° ${compassPoint(o.headingDeg)}${o.capture ? ` (${o.capture.headingSource})` : ""}`, state: "done" });
@@ -1493,6 +1513,9 @@ export class StreetShow {
       h("p", { class: "show-card-where", text: `${distanceText(shop.s)} ahead on the ${shop.side}` }),
       stop ? h("p", { class: "show-card-quest", text: `✦ ${stop.line}` }) : null,
       this.spotted.has(shop.id) ? h("p", { class: "show-card-quest", text: "✓ Muse Spark read this sign in your photo" }) : null,
+      this.signCuts.has(shop.id)
+        ? h("figure", { class: "show-card-sign" }, h("img", { src: this.signCuts.get(shop.id)!, alt: `The sign of ${shop.name} in your photo` }), h("figcaption", { text: "In your photo · outlined by SAM 3.1" }))
+        : null,
       shop.cuisine ? h("p", { class: "muted", text: `Cuisine: ${shop.cuisine.replace(/;/g, ", ").replace(/_/g, " ")}` }) : null,
       shop.openingHours ? h("p", { class: "muted", text: `Hours (as mapped): ${shop.openingHours}` }) : null,
       links.some(Boolean) ? h("div", { class: "show-card-links" }, ...links) : null,
@@ -1525,8 +1548,14 @@ export class StreetShow {
     this.cardEl.classList.add("hidden");
   }
 
-  private note(text: string, ms: number, good = false): void {
-    this.noteEl.textContent = text;
+  /** A line over the street for a while; `pictures`, small images under it (the signs from the photo). */
+  private note(text: string, ms: number, good = false, pictures: { src: string; alt: string }[] = [], caption = ""): void {
+    this.noteEl.replaceChildren(text);
+    if (pictures.length > 0) {
+      this.noteEl.append(
+        h("span", { class: "show-note-signs" }, ...pictures.map((p) => h("img", { src: p.src, alt: p.alt })), caption ? h("span", { text: caption }) : null),
+      );
+    }
     this.noteEl.classList.toggle("good", good);
     this.noteEl.classList.remove("hidden");
     window.clearTimeout(this.noteTimer);
@@ -1545,25 +1574,96 @@ export class StreetShow {
     }
   }
 
-  /** Asks Muse Spark Open which of the nearest mapped places it can read in the photo. */
+  /** The photo at the size Meta's models get, made on first use and kept. */
+  private modelPhoto(): { canvas: HTMLCanvasElement; jpeg: string } {
+    if (!this.model) {
+      const canvas = modelCanvas(this.options.photo!);
+      this.model = { canvas, jpeg: modelJpeg(canvas) };
+    }
+    return this.model;
+  }
+
+  /**
+   * Asks SAM 3.1 for every sign in the photo, alongside the street lookup.
+   * Whatever happens here, the show goes on: a refusal, an error or a slow
+   * answer only means the sign check reads the plain photo, as before.
+   */
+  private async findSigns(): Promise<void> {
+    this.samState = "asking";
+    // Let the photo's first frames draw before it is made small.
+    await new Promise((resolve) => window.setTimeout(resolve, 60));
+    try {
+      if (this.disposed) return;
+      const model = this.modelPhoto();
+      const res = await fetch("/api/sam", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: model.jpeg, prompt: "sign" }),
+        signal: this.abort.signal,
+      });
+      const reply = readSamReply(await res.json().catch(() => null));
+      if (this.disposed) return;
+      if (!res.ok || !reply || reply.width !== model.canvas.width || reply.height !== model.canvas.height) {
+        this.samState = "failed";
+        return;
+      }
+      this.samFound = reply.signs.length;
+      this.signBoxes = numberSigns(reply.signs);
+      this.samState = "done";
+    } catch {
+      if (!this.disposed) this.samState = "failed";
+    }
+  }
+
+  /**
+   * Asks Muse Spark Open which of the nearest mapped places it can read in
+   * the photo. When SAM 3.1 found signs, the photo goes with them boxed and
+   * numbered, and a place read in a box gets that sign, cut out along SAM's
+   * outline, on its card.
+   */
   private async checkSigns(): Promise<void> {
     const street = this.street!;
     const places = spotPlaces(street.shops);
     if (places.length === 0 || !this.options.photo) return;
+    await Promise.race([this.samDone, new Promise((resolve) => window.setTimeout(resolve, SAM_WAIT_MS))]);
+    if (this.disposed) return;
     try {
+      const model = this.modelPhoto();
+      const boxes = this.samState === "done" ? this.signBoxes : [];
+      const image = boxes.length > 0 ? modelJpeg(drawSignBoxes(model.canvas, boxes)) : model.jpeg;
       const res = await fetch("/api/signs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: photoForModel(this.options.photo), places }),
+        body: JSON.stringify({ image, places, boxes: boxes.length }),
         signal: this.abort.signal,
       });
       const body = (await res.json().catch(() => ({}))) as { spotted?: Spotted; error?: string };
       if (this.disposed || !res.ok || !body.spotted) return;
       const byId = new Map(street.shops.map((x) => [x.id, x]));
-      const names = body.spotted.seen.map((x) => byId.get(x.id)?.name).filter((x): x is string => x !== undefined);
-      this.spotted = new Set(body.spotted.seen.map((x) => x.id));
-      if (names.length > 0) this.note(`✓ Muse Spark read ${names.length === 1 ? "a sign" : `${names.length} signs`} in your photo: ${names.join(", ")}. Right street, right way.`, 9000, true);
-      else if (body.spotted.view === "across") this.note("Muse Spark sees building fronts, not a street running away from you. Turn to look along the street and try again.", 9000);
+      const read = body.spotted.seen.filter((x) => byId.has(x.id));
+      const names = read.map((x) => byId.get(x.id)!.name);
+      this.spotted = new Set(read.map((x) => x.id));
+      const photo = this.options.photo;
+      const full = photo.width / model.canvas.width;
+      const pictures: { src: string; alt: string }[] = [];
+      for (const x of read) {
+        const box = x.box === undefined ? undefined : boxes.find((b) => b.n === x.box);
+        if (!box) continue;
+        // From the full photo for a sharp picture, unless that would be a large one to make while the light runs.
+        const sharp = (box.x2 - box.x1) * full <= CUT_MAX_PX;
+        const src = (sharp ? cutSign(photo, box, full) : cutSign(model.canvas, box)).toDataURL("image/png");
+        this.signCuts.set(x.id, src);
+        if (pictures.length < 4) pictures.push({ src, alt: `The sign of ${byId.get(x.id)!.name}` });
+      }
+      if (names.length > 0) {
+        this.note(
+          `✓ Muse Spark read ${names.length === 1 ? "a sign" : `${names.length} signs`} in your photo: ${names.join(", ")}. Right street, right way.`,
+          9000,
+          true,
+          pictures,
+          pictures.length > 0 ? "outlined by SAM 3.1" : "",
+        );
+      } else if (body.spotted.view === "across") this.note("Muse Spark sees building fronts, not a street running away from you. Turn to look along the street and try again.", 9000);
     } catch {
       // The sign check is a bonus: without it the street still shows.
     }

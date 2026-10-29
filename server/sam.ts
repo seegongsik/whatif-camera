@@ -1,7 +1,8 @@
 /**
- * SAM 3.1 on Meta Model API: every shop sign in the photo, each as a box and
- * an outline, from the short noun phrase "shop sign" (one concept per
- * request is SAM's rule). The reply is SAM's token text, one line per frame;
+ * SAM 3.1 on Meta Model API: every sign in the photo, each as a box and an
+ * outline, from the short noun phrase "sign" (one concept per request is
+ * SAM's rule; on a test street "sign" found every sign where "shop sign"
+ * found none). The reply is SAM's token text, one line per frame;
  * Meta's parser (@meta-sam/parser) reads it and turns each mask into an SVG
  * path, so the page can cut the sign out of its own copy of the photo. Only
  * boxes and outlines go back to the page, never the picture.
@@ -11,9 +12,9 @@ import { resolveModelApiKey, type EnvMap } from "./keys.js";
 
 export const META_API_BASE = "https://api.meta.ai/v1";
 export const SAM_MODEL = "sam-3.1";
-export const SIGN_PROMPT = "shop sign";
+export const SIGN_PROMPT = "sign";
 /** The phrases a request may ask for instead (one concept per request): for checking what SAM finds on real streets. */
-export const SIGN_PROMPTS = ["shop sign", "sign", "signboard", "storefront"] as const;
+export const SIGN_PROMPTS = ["sign", "shop sign", "signboard", "storefront"] as const;
 export type SignPrompt = (typeof SIGN_PROMPTS)[number];
 
 export function isSignPrompt(value: unknown): value is SignPrompt {
