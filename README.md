@@ -5,7 +5,7 @@ Two modes, one camera:
 - **What's Ahead** (the default): stand on a street, point your phone down it and take one photo. The map works out which street you are on and which way you are looking; then, on black, a light runs 5 km down the street from where you stand, dotting every place the map knows at its distance and side and stopping to name the landmarks. Tap Restaurants, Cafés, Shops or Entertainment and the light runs the street again for just those.
 - **Building what-if** (`/?mode=building`): point your phone at a building. One photo and the map turn it into a 3D model with its measurements, and then it shows what the building could become: a garden on the roof, green climbing up the walls, warm light after sunset. The result is a 9:16 video made for sharing.
 
-The project started as What If Camera; the repository, the package and the deployment (https://whatif-camera.vercel.app) keep that name, and the code calls the street mode Street Ahead. Entry for the Meta Global AI Developer Hackathon (October to November 2026). Operator: Minwoo Kwon (`seegongsik`). License: MIT.
+The project started as What If Camera; the repository, the package and the deployment (https://whatif-camera.vercel.app) keep that name, and the code calls the street mode Street Ahead. Entry for the Meta Global AI Developer Hackathon (October to November 2026). Operator: Minwoo Kwon (`seegongsik`). License: all rights reserved (see `LICENSE`); third-party packages and data keep their own licenses, listed below.
 
 Shop data is what OpenStreetMap has mapped, shown with its source; shops change. Heights, floors and designs are estimates and ideas, shown as such. A real roof garden needs a structural check.
 
