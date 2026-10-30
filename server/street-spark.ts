@@ -1,9 +1,12 @@
 /**
- * Muse Spark Open on the street: a quest along it (stops chosen by id from
- * the mapped places, told by kind only) and a check of which mapped places
- * it can read in the photo. Both answers are checked before the page sees
- * them (src/street/quest.ts, src/street/spotted.ts).
+ * Muse Spark Open on the street: the places the show names (picked by list
+ * number from the mapped places, with a reason from a menu), a quest along
+ * it (stops chosen by id from the mapped places, told by kind only) and a
+ * check of which mapped places it can read in the photo. Every answer is
+ * checked before the page sees it (src/street/picks.ts, src/street/quest.ts,
+ * src/street/spotted.ts).
  */
+import { parsePicks, type PickPlace, type Picks } from "../src/street/picks.js";
 import { parseQuest, QUEST_THEMES, type Quest, type QuestPlace, type QuestTheme } from "../src/street/quest.js";
 import { parseSpotted, type SpotPlace, type Spotted } from "../src/street/spotted.js";
 import type { EnvMap } from "./keys.js";
@@ -74,6 +77,64 @@ export function buildSignsMessages(places: SpotPlace[], imageDataUrl: string, bo
       ],
     },
   ];
+}
+
+export const PICKS_SYSTEM_PROMPT = [
+  "You choose which places a visitor would want named on a map of one street, from a numbered list of the places along it.",
+  "Use what you know about these places: famous sights, historic places, flagship stores, museums, theatres and venues known by name, restaurants, cafés and bars known well beyond their block.",
+  "landmarks: up to ten places a visitor is most likely to know or look for by name, most recognisable first. Give each a reason: iconic (known well beyond the street), historic (long-standing or historic), flagship (a brand's main or best-known store), culture (a museum, gallery, theatre or venue known by name) or well_known.",
+  "best: for each group in the list, up to four places of that group that are best known by name, most recognisable first.",
+  "Pick only places you recognise; it is fine to give few or none. Never pick a place for its kind alone, and skip names that look misplaced for this street.",
+  'Reply with exactly one JSON object and nothing else: {"landmarks": [{"n": 1, "why": "iconic"}], "best": {"food": [2, 5], "cafe": []}}. Use only numbers from the list.',
+].join(" ");
+
+/** The list the model reads: numbers instead of ids (shorter, and nothing to copy wrong), and no text of its own goes back to the page. */
+export function buildPicksMessages(places: PickPlace[], context: { street?: string; near?: { lat: number; lon: number } } = {}): ChatMessage[] {
+  const where = [
+    context.street ? `Street: ${context.street}` : "Street: unnamed",
+    // Two decimals, about a kilometre: enough to tell which city, no more.
+    context.near ? `near ${context.near.lat.toFixed(2)}, ${context.near.lon.toFixed(2)}` : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const rows = places.map((p, i) => `${i + 1}|${p.name.replace(/[|\n]/g, "/")}|${p.kind}|${p.group}|${p.distanceM}|${p.side}`);
+  const text = [`${where}.`, `Places ahead (n|name|kind|group|metres ahead|side):`, ...rows].join("\n");
+  return [
+    { role: "system", content: PICKS_SYSTEM_PROMPT },
+    { role: "user", content: text },
+  ];
+}
+
+/** Answers kept per server instance: the same street asked again (a demo street, a replay) answers at once. */
+const pickCache = new Map<string, { at: number; value: { picks: Picks; latencyMs: number; model: string } }>();
+const PICK_CACHE_MS = 6 * 3600 * 1000;
+const PICK_CACHE_MAX = 300;
+
+export function resetPicksCacheForTests(): void {
+  pickCache.clear();
+}
+
+export async function picksWithSpark(
+  places: PickPlace[],
+  context: { street?: string; near?: { lat: number; lon: number } },
+  deps: Deps = {},
+): Promise<{ picks: Picks; latencyMs: number; model: string; cached: boolean }> {
+  const now = (deps.now ?? Date.now)();
+  const key = JSON.stringify([context.street ?? "", context.near?.lat.toFixed(2), context.near?.lon.toFixed(2), places.map((p) => [p.id, p.name, p.group])]);
+  const hit = pickCache.get(key);
+  if (hit && now - hit.at < PICK_CACHE_MS) return { ...hit.value, cached: true };
+  const reply = await sparkChat(buildPicksMessages(places, context), { temperature: 0.2, maxTokens: 4000 }, { ...deps, timeoutMs: 25_000 });
+  let picks: Picks;
+  try {
+    picks = parsePicks(answerObject(reply, "landmarks"), places);
+  } catch (error) {
+    if (error instanceof SparkError) throw error;
+    throw new SparkError(502, `the picks did not check out: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const value = { picks, latencyMs: reply.latencyMs, model: MUSE_SPARK_OPEN_MODEL };
+  if (pickCache.size >= PICK_CACHE_MAX) pickCache.delete(pickCache.keys().next().value!);
+  pickCache.set(key, { at: now, value });
+  return { ...value, cached: false };
 }
 
 /** The JSON object in the answer, or in the reasoning when the budget ran out mid-answer. */

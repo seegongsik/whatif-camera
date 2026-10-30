@@ -83,12 +83,12 @@ function syntheticTile(): Uint8Array {
   return new Uint8Array([...lenDelim(3, roads), ...lenDelim(3, pois)]);
 }
 
-type Call = { url: string; body: string };
+type Call = { url: string; body: string; signal?: AbortSignal };
 
-function fakeFetch(handler: (call: Call) => Response): { fetchImpl: typeof fetch; calls: Call[] } {
+function fakeFetch(handler: (call: Call) => Response | Promise<Response>): { fetchImpl: typeof fetch; calls: Call[] } {
   const calls: Call[] = [];
   const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const call = { url: String(input), body: decodeURIComponent(String(init?.body ?? "").replace(/^data=/, "")) };
+    const call = { url: String(input), body: decodeURIComponent(String(init?.body ?? "").replace(/^data=/, "")), signal: init?.signal ?? undefined };
     calls.push(call);
     return handler(call);
   }) as typeof fetch;
@@ -154,6 +154,19 @@ describe("street lookup (SYNTHETIC)", () => {
     });
     // Looking east, across the only road in the tile.
     await expect(lookupStreet(origin, 90, { fetchImpl, env: { OVERTURE_PLACES: "off" } })).rejects.toThrow(/No named street runs beside you .*Overpass did not answer .*504 busy/);
+  });
+
+  it("gives Overpass only a few seconds when the tiles answered without a street", { timeout: 12_000 }, async () => {
+    const { fetchImpl } = fakeFetch(({ url, signal }) => {
+      // An Overpass server that never answers: only the time limit ends the wait.
+      if (url.includes("interpreter")) return new Promise((_, reject) => signal?.addEventListener("abort", () => reject(new Error("aborted"))));
+      if (url.endsWith("/planet")) return Response.json({ tiles: ["https://tiles.example/{z}/{x}/{y}.pbf"] });
+      if (url.includes(`/14/${tile.x}/${tile.y}.pbf`)) return new Response(new Blob([syntheticTile() as BlobPart]));
+      return new Response(null, { status: 204 });
+    });
+    const started = Date.now();
+    await expect(lookupStreet(origin, 90, { fetchImpl, env: { OVERTURE_PLACES: "off" } })).rejects.toThrow(/No named street runs beside you/);
+    expect(Date.now() - started).toBeLessThan(7000);
   });
 
   it("takes the named street when the starting point is a little off", async () => {

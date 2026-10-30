@@ -412,6 +412,31 @@ export function radarPose(headingDeg: number): Pose {
 export type Follow = { ahead: number; distance: number; pitchDeg: number };
 export const FOLLOW: Follow = { ahead: 150, distance: 900, pitchDeg: 38 };
 export const TOUR_FOLLOW: Follow = { ahead: 180, distance: 1050, pitchDeg: 40 };
+/**
+ * The signs' flight from the photo to the street, in milliseconds: the
+ * camera glides in over where you stood, then one sign after another lifts
+ * out of the photo and lands on its place, then the photo goes and the
+ * camera goes back.
+ */
+export const FLIGHT = { glideMs: 700, firstMs: 1000, stepMs: 450, flyMs: 750, holdMs: 1100, outMs: 800 };
+
+export function flightLength(n: number): number {
+  return FLIGHT.firstMs + Math.max(0, n - 1) * FLIGHT.stepMs + FLIGHT.flyMs + FLIGHT.holdMs + FLIGHT.outMs;
+}
+
+/** How far sign i is on its way, `t` ms into the flight: 0 still in the photo, 1 on the street. */
+export function flightProgress(i: number, t: number): number {
+  return Math.min(1, Math.max(0, (t - FLIGHT.firstMs - i * FLIGHT.stepMs) / FLIGHT.flyMs));
+}
+
+/** A point on the flight's arc: eased along the straight line, lifted in the middle. */
+export function arcPoint(from: { x: number; y: number }, to: { x: number; y: number }, k: number, lift: number): { x: number; y: number } {
+  const e = k < 0.5 ? 4 * k * k * k : 1 - (-2 * k + 2) ** 3 / 2;
+  return { x: from.x + (to.x - from.x) * e, y: from.y + (to.y - from.y) * e - Math.sin(Math.PI * k) * lift };
+}
+
+/** Walking the street: closer in, so the places around you have room for their names. */
+export const WALK_FOLLOW: Follow = { ahead: 110, distance: 520, pitchDeg: 44 };
 
 /**
  * Where the camera is along the street while the light runs: behind it,

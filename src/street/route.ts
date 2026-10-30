@@ -191,6 +191,14 @@ export type Placement = { s: number; offset: number; at: EN };
  * it lies before the start or past the end.
  */
 export function placeOnRoute(route: Route, p: EN): Placement | null {
+  const best = nearestOnRoute(route, p);
+  if (!best || best.outside) return null;
+  const { outside: _outside, ...placement } = best;
+  return placement;
+}
+
+/** The route's nearest point to p, also when p lies before its start or past its end (`outside`). */
+export function nearestOnRoute(route: Route, p: EN): (Placement & { outside: boolean }) | null {
   let best: (Placement & { outside: boolean }) | null = null;
   let bestD = Infinity;
   const n = route.points.length;
@@ -211,9 +219,7 @@ export function placeOnRoute(route: Route, p: EN): Placement | null {
       best = { s: route.along[i] + t * l, offset: (p.x - at.x) * right.x + (p.y - at.y) * right.y, at, outside };
     }
   }
-  if (!best || best.outside) return null;
-  const { outside: _outside, ...placement } = best;
-  return placement;
+  return best;
 }
 
 /** Douglas–Peucker: fewer points, none further than `tolerance` metres from the original line. */

@@ -2,12 +2,16 @@ import { describe, expect, it } from "vitest";
 import type { ShopAhead } from "../src/street/ahead.js";
 import { SHOP_CATEGORIES } from "../src/street/osm.js";
 import {
+  arcPoint,
   brandCounts,
   chaseTrack,
   clampPose,
   dotOffset,
   easeOutBack,
   fameScore,
+  FLIGHT,
+  flightLength,
+  flightProgress,
   followPose,
   groundAt,
   groundScale,
@@ -302,3 +306,24 @@ describe("exploring the street", () => {
   });
 });
 
+
+describe("the signs' flight from the photo to the street", () => {
+  it("sends the signs one after another and ends after the last has landed and the camera is back", () => {
+    expect(flightLength(1)).toBe(FLIGHT.firstMs + FLIGHT.flyMs + FLIGHT.holdMs + FLIGHT.outMs);
+    expect(flightLength(3) - flightLength(1)).toBe(2 * FLIGHT.stepMs);
+    expect(flightProgress(0, FLIGHT.firstMs - 1)).toBe(0);
+    expect(flightProgress(1, FLIGHT.firstMs + FLIGHT.stepMs + FLIGHT.flyMs / 2)).toBeCloseTo(0.5);
+    expect(flightProgress(2, flightLength(3))).toBe(1);
+  });
+
+  it("flies on an arc: from the box, lifted midway, onto the place", () => {
+    const from = { x: 100, y: 100 };
+    const to = { x: 300, y: 500 };
+    expect(arcPoint(from, to, 0, 70)).toEqual(from);
+    expect(arcPoint(from, to, 1, 70).x).toBeCloseTo(300);
+    expect(arcPoint(from, to, 1, 70).y).toBeCloseTo(500);
+    const mid = arcPoint(from, to, 0.5, 70);
+    expect(mid.x).toBeCloseTo(200);
+    expect(mid.y).toBeCloseTo(300 - 70);
+  });
+});

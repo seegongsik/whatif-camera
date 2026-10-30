@@ -33,7 +33,8 @@ import { FAMOUS_STREETS, nearestStreet, orderForZone } from "../street/famous.js
 import { addFieldShot, clearFieldLog, fieldLogText, fieldShot, readFieldLog, type FieldShot } from "../street/field-log.js";
 import type { StreetAhead } from "../street/street.js";
 import { syntheticStreet } from "../street/synthetic.js";
-import { StreetShow } from "../street/show.js";
+import { readSaved, savePicks, saveStreet, type SavedStreet } from "../street/saved.js";
+import { StreetShow, type StreetShowOptions } from "../street/show.js";
 import { h, fmt } from "./dom.js";
 import { factsPanel } from "./facts.js";
 import { Marker } from "./marker.js";
@@ -94,6 +95,12 @@ export class App {
         this.showStreet(syntheticStreet());
         return;
       }
+      // The last street from a photo, after the browser reloaded the page (a tap out to a place's Instagram and back).
+      const saved = params.get("resume") === "1" ? readSaved() : null;
+      if (saved && this.mode === "street") {
+        this.resumeStreet(saved);
+        return;
+      }
       const at = params.get("street")?.split(",");
       const nums = at?.slice(0, 3).map(Number);
       if (at && nums && nums.length === 3 && nums.every(Number.isFinite)) {
@@ -136,6 +143,7 @@ export class App {
 
   private home(error?: string): void {
     this.stopLive();
+    resumable(false);
     if (this.mode === "street") {
       this.streetHome(error);
       return;
@@ -188,6 +196,10 @@ export class App {
   }
 
   private streetHome(error?: string): void {
+    const streets = orderForZone(FAMOUS_STREETS, timeZone());
+    const saved = readSaved();
+    // On a laptop the camera is a dead end (no GPS fix, no compass, a lens facing you): a demo street is the way in there.
+    const phone = phoneLike();
     const photoInput = h("input", { type: "file", accept: "image/jpeg,image/*", class: "hidden" });
     photoInput.addEventListener("change", () => {
       const file = photoInput.files?.[0];
@@ -203,17 +215,30 @@ export class App {
         // The way in right under the clip, inside the first screen; what it does follows.
         error ? h("p", { class: "error", text: error }) : null,
         this.inAppNote(),
-        h("button", { class: "primary big", onclick: () => void this.openCamera() }, "Open camera"),
+        phone
+          ? h("button", { class: "primary big", onclick: () => void this.openCamera() }, "Open camera")
+          : h("button", { class: "primary big", onclick: () => void this.streetFor(streets[0]) }, `Fly down ${streets[0].short} ›`),
+        // The last street from a photo stays until the next photo makes another.
+        saved
+          ? h(
+              "button",
+              { class: "big continue", onclick: () => this.resumeStreet(saved) },
+              h("span", { text: `Continue on ${saved.street.name ?? "your last street"} ›` }),
+              h("small", { text: `${savedWhen(saved.savedAt)} · ${saved.street.shops.length} places${saved.live ? " · your dot follows you" : ""}` }),
+            )
+          : null,
         h("p", {
           class: "lead",
-          text: "Point your phone down a street and take one photo. A light runs 5 km ahead, dots every place the map knows on its side of the street, and stops at the landmarks.",
+          text: "Point your phone down a street and take one photo. A light runs 5 km ahead, dots every place the map knows on its side of the street, and stops at the landmarks Muse Spark knows by name.",
         }),
-        h("div", { class: "row" }, h("button", { onclick: () => photoInput.click() }, "Use a photo")),
+        phone ? null : h("p", { class: "muted small", text: "The camera is for a phone on a street: open this page on your phone there. On this screen, fly down a demo street." }),
+        h("div", { class: "row" }, phone ? null : h("button", { onclick: () => void this.openCamera() }, "Open camera"), h("button", { onclick: () => photoInput.click() }, "Use a photo")),
+        h("p", { class: "muted small", text: PHOTO_NOTE }),
         h("div", { class: "home-section" }, h("span", { text: "DEMO STREETS" }), h("span", { class: "home-section-note", text: "from the map, no photo" })),
         h(
           "ol",
           { class: "demo-streets" },
-          ...orderForZone(FAMOUS_STREETS, timeZone()).map((s, i) =>
+          ...streets.map((s, i) =>
             h(
               "li",
               {},
@@ -253,9 +278,18 @@ export class App {
     );
   }
 
-  private async streetFor(at: { lat: number; lon: number; headingDeg: number; street?: string }, photo?: HTMLCanvasElement, capture?: CaptureMeta): Promise<void> {
+  /** `live`: the photo came from the camera just now, so walking the street follows the phone. */
+  private async streetFor(at: { lat: number; lon: number; headingDeg: number; street?: string }, photo?: HTMLCanvasElement, capture?: CaptureMeta, live = false): Promise<void> {
+    // A street from a photo is kept (until the next photo), with Muse Spark's picks once they are in.
+    let kept: StreetAhead | null = null;
     // The show starts at once: its radar runs while the street is looked up.
-    const show = this.openShow(at, photo, capture, () => void this.streetFor(at, photo, capture));
+    const show = this.openShow(at, photo, capture, () => void this.streetFor(at, photo, capture, live), {
+      live,
+      // No camera behind a street from the map alone: a SIMULATED walk shows what walking it does.
+      simulate: !photo,
+      onPicks: (picks) => kept && savePicks(kept, picks),
+      onNewStreet: () => void this.openCamera(),
+    });
     const asked = performance.now();
     // Shots from the phone go in the field log, to look into later.
     const log = (outcome: StreetAhead | string) => capture && addFieldShot(fieldShot(capture, (performance.now() - asked) / 1000, outcome));
@@ -267,6 +301,10 @@ export class App {
       if (!res.ok || !body.route) throw new Error(body.error ?? `The street lookup answered ${res.status}.`);
       show.load(body as StreetAhead);
       log(body as StreetAhead);
+      if (photo && saveStreet({ street: body as StreetAhead, savedAt: capture?.takenAt ?? new Date().toISOString(), live })) {
+        kept = body as StreetAhead;
+        resumable(true);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       show.fail(message);
@@ -308,7 +346,7 @@ export class App {
   private pickDirection(photo: HTMLCanvasElement, capture: CaptureMeta): void {
     const go = (headingDeg: number) => {
       const picked: CaptureMeta = { ...capture, headingDeg, headingAccuracyDeg: 22.5, headingSource: "manual" };
-      void this.streetFor({ lat: picked.lat, lon: picked.lon, headingDeg }, photo, picked);
+      void this.streetFor({ lat: picked.lat, lon: picked.lon, headingDeg }, photo, picked, true);
     };
     const preview = h("canvas", { class: "thumb direction-photo" });
     preview.width = photo.width;
@@ -332,16 +370,35 @@ export class App {
   }
 
   private showStreet(street: StreetAhead): void {
-    this.openShow({ lat: street.origin.lat, lon: street.origin.lon, headingDeg: street.headingDeg }).load(street);
+    this.openShow({ lat: street.origin.lat, lon: street.origin.lon, headingDeg: street.headingDeg }, undefined, undefined, undefined, { simulate: true }).load(street);
   }
 
-  private openShow(at: { lat: number; lon: number; headingDeg: number }, photo?: HTMLCanvasElement, capture?: CaptureMeta, onRetry?: () => void): StreetShow {
+  /** The last street from a photo, as it was: no lookup and no run, the whole street at once; walking follows the phone again when it came from the camera. */
+  private resumeStreet(saved: SavedStreet): void {
+    const street = saved.street;
+    const show = this.openShow({ lat: street.origin.lat, lon: street.origin.lon, headingDeg: street.headingDeg }, undefined, undefined, undefined, {
+      live: saved.live,
+      resume: true,
+      onPicks: (picks) => savePicks(street, picks),
+      onNewStreet: () => void this.openCamera(),
+    });
+    show.load(street, saved.picks);
+    resumable(true);
+  }
+
+  private openShow(
+    at: { lat: number; lon: number; headingDeg: number },
+    photo?: HTMLCanvasElement,
+    capture?: CaptureMeta,
+    onRetry?: () => void,
+    more: Partial<StreetShowOptions> = {},
+  ): StreetShow {
     // Where no street (or no place) is found, the nearest famous street is one tap away.
     const near = nearestStreet(FAMOUS_STREETS, at);
     const elsewhere = near ? { label: near.short, go: () => void this.streetFor(near) } : undefined;
     // ?sam=0 leaves SAM 3.1 out, to compare the sign check with and without it.
     const sam = params.get("sam") !== "0";
-    const show = new StreetShow({ origin: { lat: at.lat, lon: at.lon }, headingDeg: at.headingDeg, photo, capture, onClose: () => this.home(), onRetry, elsewhere, sam });
+    const show = new StreetShow({ origin: { lat: at.lat, lon: at.lon }, headingDeg: at.headingDeg, photo, capture, onClose: () => this.home(), onRetry, elsewhere, sam, ...more });
     this.screen(show.element);
     this.streetShow = show;
     show.start();
@@ -445,10 +502,11 @@ export class App {
       };
       this.stopLive();
       if (this.mode === "street" && capture.headingSource === "manual") this.pickDirection(photo, capture);
-      else if (this.mode === "street") void this.streetFor({ lat: capture.lat, lon: capture.lon, headingDeg: capture.headingDeg }, photo, capture);
+      else if (this.mode === "street") void this.streetFor({ lat: capture.lat, lon: capture.lon, headingDeg: capture.headingDeg }, photo, capture, true);
       else void this.withFootprints(photo, capture, "Live capture");
     });
-    this.screen(h("main", { class: "camera" }, camera.video, level, h("div", { class: "camera-top" }, hud, help), h("div", { class: "camera-bar" }, back, shoot)));
+    const note = this.mode === "street" ? h("p", { class: "camera-note", text: PHOTO_NOTE }) : null;
+    this.screen(h("main", { class: "camera" }, camera.video, level, h("div", { class: "camera-top" }, hud, help), note, h("div", { class: "camera-bar" }, back, shoot)));
     update();
   }
 
@@ -777,6 +835,33 @@ export class App {
       ),
     );
   }
+}
+
+/** A street from a photo is on screen: a reload comes back to it (?resume=1) rather than to the home page. */
+function resumable(on: boolean): void {
+  if (on === (new URLSearchParams(location.search).get("resume") === "1")) return;
+  try {
+    history.replaceState(null, "", on ? `${location.pathname}?resume=1` : location.pathname);
+  } catch {
+    // A sandboxed page: the reload goes home instead.
+  }
+}
+
+/** When the kept street's photo was taken, in the phone's own words. */
+function savedWhen(iso: string): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return "Earlier";
+  const sameDay = at.toDateString() === new Date().toDateString();
+  return sameDay ? `Today ${at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : at.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+/** Where a street photo goes, said where the photo is taken and on the home page. */
+const PHOTO_NOTE = "Your photo goes to Meta's SAM 3.1 and Muse Spark Open (on Baseten) to read the signs in it, and your position to this site's server to find the street. The app keeps neither.";
+
+/** A phone or a tablet (a touch screen as the main pointer), rather than a laptop or a desktop. */
+function phoneLike(): boolean {
+  const coarse = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+  return coarse || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
 }
 
 /** The device's time zone, which orders the starting points; nothing when the browser does not say. */
