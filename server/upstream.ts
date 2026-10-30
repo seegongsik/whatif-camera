@@ -13,7 +13,7 @@ export const DEFAULT_OVERPASS_URLS = [
 export const OPENFREEMAP_TILEJSON = "https://tiles.openfreemap.org/planet";
 export const OSM_ATTRIBUTION = "© OpenStreetMap contributors (ODbL)";
 export const TILE_ATTRIBUTION = "© OpenStreetMap contributors (ODbL) · OpenMapTiles · OpenFreeMap";
-export const USER_AGENT = "whatif-camera/0.1 (What's Ahead, hackathon entry; github.com/seegongsik/whatif-camera)";
+export const USER_AGENT = "whats-ahead/0.1 (hackathon entry; github.com/seegongsik/whats-ahead)";
 
 export class UpstreamError extends Error {
   readonly status: number;

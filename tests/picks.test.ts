@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ShopAhead } from "../src/street/ahead.js";
 import type { ShopCategory } from "../src/street/osm.js";
-import { landmarksFrom, mergePicks, parsePicks, pickCandidates, PICK_MAX_PLACES, type PickPlace } from "../src/street/picks.js";
+import { knownIds, landmarksFrom, mergePicks, parsePicks, pickCandidates, PICK_MAX_PLACES, type PickPlace } from "../src/street/picks.js";
 import { pickLandmarks } from "../src/street/show-plan.js";
 import { syntheticStreet } from "../src/street/synthetic.js";
 import { buildPicksMessages, resetPicksCacheForTests } from "../server/street-spark.js";
@@ -100,6 +100,10 @@ describe("landmarks from the picks", () => {
     expect(mergePicks([b, a, c], [d, e], 8, 3).map((s) => s.name)).toEqual(["B", "C", "D"]);
     expect(mergePicks([b, a, c, d, e], [], 3, 3).map((s) => s.name)).toEqual(["B", "C", "D"]);
     expect(mergePicks([], [d, e, a], 8, 3).map((s) => s.name)).toEqual(["A", "D", "E"]);
+  });
+
+  it("count only the model's landmarks as known to a quest, not a chip's everyday branch", () => {
+    expect([...knownIds({ landmarks: [{ id: "museum", why: "culture" }], best: { cafe: ["coffee-chain"] } })]).toEqual(["museum"]);
   });
 
   it("map the model's ids to the street's places and leave the rest to the map", () => {
