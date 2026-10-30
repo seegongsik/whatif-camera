@@ -8,6 +8,7 @@
  * OpenStreetMap (the tiles' places, or Overpass). Answers are cached per
  * instance for a quarter of an hour.
  */
+import { misplaced } from "../src/street/errata.js";
 import { localFrame, toLatLon, toLocal, type LatLon } from "../src/geo/enu.js";
 import { latLonToTile } from "../src/data/mvt.js";
 import { shopsFromOverpass, waysFromOverpass, type Shop, type StreetWay } from "../src/street/osm.js";
@@ -40,8 +41,14 @@ const OVERPASS_BUDGET_MS = 20_000;
  * 2026-10-30, all of it spent waiting for Overpass).
  */
 const OVERPASS_SHORT_BUDGET_MS = 5_000;
-/** The most places one street keeps: a 5 km street in Seoul has well over a thousand, more signs than a phone should draw. */
-export const MAX_PLACES = 400;
+/**
+ * The most places one street keeps: a 5 km street in Tokyo has over two
+ * thousand. The show draws dots, not signs, so 800 is light for a phone,
+ * and enough to keep nearly every place in the first kilometre of the
+ * busiest streets (about 400 to 640 on 7th Avenue, Fifth Avenue, Oxford
+ * Street and Ginza; estimated 2026-10-30) with 200 or more beyond.
+ */
+export const MAX_PLACES = 800;
 export const OVERTURE_ATTRIBUTION = "Places © Overture Maps Foundation (CDLA-Permissive-2.0)";
 
 /** Where to look for places along a street: a box per 250 m, as wide as the street's corridor. */
@@ -239,6 +246,8 @@ export async function lookupStreet(origin: LatLon, headingDeg: number, deps: Dep
       attribution = TILE_ATTRIBUTION;
     }
   }
+  // Places the data has in a spot they are known not to be (src/street/errata.ts) are left out.
+  shops = shops.filter((shop) => !misplaced(shop));
   const street = buildStreetAhead({ origin, headingDeg, nameHint, ways: base.ways, shops, source, attribution, fetchedAt, synthetic: false, notes: failures, maxShops: MAX_PLACES });
   if (!street) throw new UpstreamError(502, "The street did not build twice the same way.");
   cache.set(key, { at: now(), value: street });

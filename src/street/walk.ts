@@ -8,6 +8,7 @@
 import { toLatLon, toLocal, type LocalFrame } from "../geo/enu.js";
 import type { ShopAhead } from "./ahead.js";
 import { nearestOnRoute, pointAt, type Route } from "./route.js";
+import { WALK_MPS } from "./signs.js";
 
 export type WalkFix = { lat: number; lon: number; accuracyM: number; at: number };
 
@@ -28,8 +29,6 @@ export type WalkSpot = {
 export const ROUGH_FIX_M = 100;
 /** Farther than this from the street's line (plus the fix's own uncertainty, up to 40 m), you have left it. */
 export const OFF_STREET_M = 50;
-/** A walking pace, metres per second. */
-export const WALK_MPS = 1.4;
 /** The SIMULATED walk goes this many times faster than a person, so a screen sees a stretch in a minute. */
 export const SIMULATED_SPEEDUP = 20;
 

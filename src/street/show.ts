@@ -43,6 +43,7 @@ import {
   lerpPose,
   overviewPose,
   pickGroup,
+  emptyStretches,
   pickLandmarks,
   poseKeeping,
   projector,
@@ -51,6 +52,7 @@ import {
   REVEAL_PACE,
   sampleRoute,
   screenSide,
+  showReach,
   TOUR_FOLLOW,
   TOUR_PACE,
   WALK_FOLLOW,
@@ -64,7 +66,7 @@ import {
   type View,
 } from "./show-plan.js";
 import { drawTag, glow, MONO, rgba, SANS, tagMeasure, type TagStyle } from "./show-draw.js";
-import { distanceText } from "./signs.js";
+import { distanceText, walkMinutes, walkText, WALK_MINUTES_UP_TO_M } from "./signs.js";
 import { cutSign, drawSignBoxes, numberSigns, readSamReply, signsForPlaces, type SignBox } from "./sign-boxes.js";
 import { spotPlaces, type Spotted } from "./spotted.js";
 import { layoutLabels, roadSpan, type Box, type LabelInput, type PlacedLabel, type ScreenPoint } from "./street-labels.js";
@@ -76,7 +78,7 @@ const MIN_COMPUTE_MS = 2400;
 const PHOTO_SCAN_MS = 1000;
 const PHOTO_FOLD_MS = 800;
 /** The first run waits this long at most, after the street is in, for Muse Spark's picks; then the map's ranking names the places. */
-const PICK_WAIT_MS = 5000;
+const PICK_WAIT_MS = 6000;
 /** Muse Spark's line stays in the readings this long before the light sets off. */
 const PICK_HOLD_MS = 600;
 /** Picks that come in after the first run pop up over the whole street one after another, this far apart. */
@@ -132,6 +134,8 @@ export type StreetShowOptions = {
   resume?: boolean;
   /** Off the street for a while: a new photo where you stand. */
   onNewStreet?: () => void;
+  /** The heading for a demo street: its name as the world knows it ("Chuo-dori · Ginza" for the map's 第一京浜). */
+  title?: string;
 };
 
 /** What the light is showing: every place (null), one kind of place, or a quest's stops. */
@@ -264,6 +268,8 @@ export class StreetShow {
   private line: { points: EN[]; along: number[] } | null = null;
   private spots = new Map<string, EN>();
   private landmarks: ShopAhead[] = [];
+  /** How far the show goes: the street, or a little past its last place when nothing is mapped along the rest. */
+  private shown = 0;
   /** The landmarks by the map's own ranking: what the show names when Muse Spark does not answer. */
   private ruleLandmarks: ShopAhead[] = [];
   /** Muse Spark's picks: not asked (too few places, a SYNTHETIC street), asking, in, or failed (the map's ranking stands). */
@@ -421,7 +427,8 @@ export class StreetShow {
     this.line = sampleRoute(this.route, 10);
     this.spots = new Map(street.shops.map((shop) => [shop.id, dotSpot(this.route!, shop)]));
     this.exploreBox = boxAround([...this.line.points, { x: 0, y: 0 }], 300);
-    this.landmarks = pickLandmarks(street.shops, street.route.length, street.name);
+    this.shown = showReach(street.shops, street.route.length);
+    this.landmarks = pickLandmarks(street.shops, this.shown, street.name);
     this.ruleLandmarks = this.landmarks;
     this.loadedAt = now;
     const minimum = this.options.photo ? PHOTO_SCAN_MS + PHOTO_FOLD_MS + 900 : MIN_COMPUTE_MS;
@@ -442,7 +449,7 @@ export class StreetShow {
     }
     if (this.options.photo) void this.checkSigns();
     // Muse Spark picks the places to name, unless the street is too quiet to pick from (or invented).
-    const candidates = pickCandidates(street.shops, street.route.length, street.name);
+    const candidates = pickCandidates(street.shops, this.shown, street.name);
     this.pickCount = candidates.length;
     if (picks) {
       this.applyPicks(picks, "kept from your last look");
@@ -516,10 +523,10 @@ export class StreetShow {
     this.updateOverview();
   }
 
-  /** How far the light goes: the whole street, or for a quest a little past its last stop. */
+  /** How far the light goes: the street as far as it has places, or for a quest a little past its last stop. */
   private reach(focus: Focus | null): number {
     const length = this.street?.route.length ?? 0;
-    if (!focus?.quest) return length;
+    if (!focus?.quest) return this.shown || length;
     return Math.min(length, Math.max(600, ...focus.quest.stops.map((s) => s.s + 300)));
   }
 
@@ -603,7 +610,11 @@ export class StreetShow {
     this.releaseCamera();
     this.updateOverview();
     const picks = focus ? focus.picks : this.landmarks;
-    const light = lightRun(this.route.along[0], this.reach(focus), picks.map((p) => p.s), first ? REVEAL_PACE : focus?.quest ? { ...TOUR_PACE, dwell: 0.9 } : TOUR_PACE);
+    const from = this.route.along[0];
+    const to = this.reach(focus);
+    // The light races across stretches with none of the places it is showing.
+    const empty = emptyStretches(focus ? street.shops.filter(focus.match) : street.shops, from, to);
+    const light = lightRun(from, to, picks.map((p) => p.s), first ? REVEAL_PACE : focus?.quest ? { ...TOUR_PACE, dwell: 0.9 } : TOUR_PACE, empty);
     const moveMs = first ? TILT_MS : TOUR_LEAD_MS;
     const start = at + (first ? LIGHT_DELAY_MS : TOUR_LEAD_MS);
     const born = new Map<string, number>();
@@ -669,12 +680,12 @@ export class StreetShow {
       const t = now - flight.at;
       const out = flightLength(flight.news.signs.length) - FLIGHT.outMs;
       if (t < out) return lerpPose(flight.from, flight.pose, easeInOut(t / FLIGHT.glideMs));
-      const back = this.walk?.follow && this.walkAt ? followPose(this.route!, this.walkAt.s, WALK_FOLLOW) : this.overview;
+      const back = this.walk?.follow && this.walkAt ? this.walkPose(this.walkAt) : this.overview;
       return lerpPose(flight.pose, back, easeInOut((t - out) / FLIGHT.outMs));
     }
-    // Walking: the camera keeps the dot near the bottom, the street ahead above it.
+    // Walking: the camera keeps the dot low on the screen, above the buttons, the street ahead above it.
     if (this.walk?.follow && this.walkAt && (this.phase === "settle" || this.phase === "overview")) {
-      const target = followPose(this.route!, this.walkAt.s, WALK_FOLLOW);
+      const target = this.walkPose(this.walkAt);
       const k = easeInOut((now - this.walk.camAt) / 1200);
       return k >= 1 ? target : lerpPose(this.walk.camFrom, target, k);
     }
@@ -1337,13 +1348,15 @@ export class StreetShow {
       blocked.push({ x: thumb.x - 8, y: thumb.y - 8, w: thumb.w + 16, h: thumb.h + 34 });
     }
     if (this.phase !== "run" || head >= this.run!.light.to - 1) {
-      const end = project(pointAt(route, route.length).at);
+      const reach = this.reach(this.focus);
+      const end = project(pointAt(route, reach).at);
       if (end) {
-        // The street's end: on whichever side has more room.
+        // The street's end (or where its places end): on whichever side has more room.
         const span = roadSpan(this.roadOnScreen, end.y - 20, end.y + 20);
         const side = area.right - (span?.max ?? end.x) >= (span?.min ?? end.x) - area.left ? "right" : "left";
-        const ends = this.street!.route.length < 4990;
-        inputs.push({ key: "end", x: end.x, y: end.y, side, priority: 1e9, name: distanceText(route.length), detail: ends ? "THE STREET ENDS" : "END OF ROUTE", item: { color: "#ffffff", end: true }, font: 11 });
+        const rest = route.length - reach;
+        const detail = this.focus?.quest ? "QUEST'S END" : rest > 1 ? `THEN ${distanceText(rest).toUpperCase()} WITH NO PLACES` : route.length < 4990 ? "THE STREET ENDS" : "END OF ROUTE";
+        inputs.push({ key: "end", x: end.x, y: end.y, side, priority: 1e9, name: distanceText(reach), detail, item: { color: "#ffffff", end: true }, font: 11 });
       }
     }
     // Exploring close in: every place in view gets its name, those nearest the middle first, as room allows.
@@ -1389,11 +1402,16 @@ export class StreetShow {
     return Boolean(this.focus && !this.focus.quest && this.aiBest[this.focus.key as GroupKey]?.includes(shop.id));
   }
 
-  /** How far ahead a place is: from you while walking the street, else from where the photo was taken. */
+  /** Metres ahead to a place: from you while walking the street, else from where the photo was taken. */
+  private aheadM(shop: ShopAhead): number {
+    return this.walkAt ? shop.s - this.walkAt.s : shop.s;
+  }
+
+  /** How far ahead a place is, for a tag: minutes on foot up to 2 km (≈, an estimate), then the distance; "behind" once walked past. */
   private aheadText(shop: ShopAhead): string {
-    if (!this.walkAt) return distanceText(shop.s);
-    const d = shop.s - this.walkAt.s;
-    return d < -5 ? "behind" : distanceText(Math.max(0, d));
+    const d = this.aheadM(shop);
+    if (this.walkAt && d < -5) return "behind";
+    return walkText(this.walkAt ? Math.max(0, d) : d);
   }
 
   /** A tag's second line: distance and kind; a place Muse Spark picked carries its spark, and a landmark its reason. */
@@ -1634,19 +1652,19 @@ export class StreetShow {
   /** The street as a ruler on the right: how far the light has gone, and how many places each stretch holds. */
   private drawRail(now: number, head: number): void {
     const ctx = this.ctx;
-    const route = this.route!;
+    const length = Math.max(1, this.shown || this.route!.length);
     const x = this.view.width - 16;
     const top = this.insets.top + 6;
     const bottom = this.view.height - this.insets.bottom - 6;
     if (bottom - top < 80) return;
-    const yAt = (s: number) => bottom - (Math.max(0, Math.min(route.length, s)) / route.length) * (bottom - top);
+    const yAt = (s: number) => bottom - (Math.max(0, Math.min(length, s)) / length) * (bottom - top);
     const shown = this.street!.shops.filter((shop) => {
       const born = this.bornAt(shop);
       return born !== null && born <= now;
     });
     const bins = 40;
-    const counts = histogram(shown, route.length, bins);
-    const most = Math.max(4, ...histogram(this.street!.shops.filter((s) => this.run?.born.has(s.id) ?? true), route.length, bins));
+    const counts = histogram(shown, length, bins);
+    const most = Math.max(4, ...histogram(this.street!.shops.filter((s) => this.run?.born.has(s.id) ?? true), length, bins));
     const color = this.focus?.color ?? LIGHT;
     ctx.fillStyle = rgba(color, 0.45);
     const binH = (bottom - top) / bins;
@@ -1665,10 +1683,10 @@ export class StreetShow {
     ctx.font = `600 9px ${MONO}`;
     ctx.textAlign = "right";
     ctx.textBaseline = "middle";
-    for (let km = 1; km * 1000 < route.length; km += 1) ctx.fillRect(x - 2, yAt(km * 1000), 5, 1);
+    for (let km = 1; km * 1000 < length; km += 1) ctx.fillRect(x - 2, yAt(km * 1000), 5, 1);
     ctx.fillText("0", x + 4, bottom + 10);
-    ctx.fillText(`${(route.length / 1000).toFixed(1)}`, x + 6, top - 10);
-    const lit = this.phase === "run" ? head : (this.run?.light.to ?? route.length);
+    ctx.fillText(`${(length / 1000).toFixed(1)}`, x + 6, top - 10);
+    const lit = this.phase === "run" ? head : (this.run?.light.to ?? length);
     ctx.globalCompositeOperation = "lighter";
     ctx.strokeStyle = rgba(color, 0.9);
     ctx.lineWidth = 2;
@@ -1693,13 +1711,13 @@ export class StreetShow {
     // The street's name types itself in once it is known.
     let name = "Finding your street";
     if (this.phase === "failed") name = "No street found";
-    else if (street) name = (street.name ?? "Unnamed street").slice(0, Math.max(0, Math.floor((now - this.loadedAt) / 55)));
+    else if (street) name = this.title().slice(0, Math.max(0, Math.floor((now - this.loadedAt) / 55)));
     let stats = "";
     if (street && this.run) {
       const run = this.run;
       const count = [...run.born.values()].filter((t) => t <= now).length;
       const noun = this.focus ? this.focus.noun : "places";
-      const km = (Math.max(0, this.phase === "run" ? head : street.route.length) / 1000).toFixed(2);
+      const km = (Math.max(0, this.phase === "run" ? head : this.reach(this.focus)) / 1000).toFixed(2);
       stats = !this.focus && this.phase !== "run" && street.placesFound ? `${km} km · ${count} of ${street.placesFound} places` : `${km} km · ${count} ${noun}`;
     }
     const key = `${name}|${stats}`;
@@ -1707,10 +1725,15 @@ export class StreetShow {
       this.hudKey = key;
       this.nameEl.textContent = name || "\u00a0";
       this.statsEl.textContent = stats;
-      this.fitName(street?.name ?? name);
+      this.fitName(street ? this.title() : name);
     }
     this.renderConsole(now);
     if (this.walk) this.renderWalkBar(now);
+  }
+
+  /** The street's name at the top: a demo street's own title, else the map's name. */
+  private title(): string {
+    return this.options.title ?? this.street?.name ?? "Unnamed street";
   }
 
   /** While the light runs: the place it reached last, large at the bottom, as in a film's lower third. */
@@ -1751,7 +1774,7 @@ export class StreetShow {
     this.captionEl.replaceChildren(
       h("div", {
         class: "show-caption-k",
-        text: `${what} ${index + 1} / ${picks.length} · ${distanceText(shop.s).toUpperCase()} · ${kindWord(shop.kind).toUpperCase()}${this.captionMark(shop)}`,
+        text: `${what} ${index + 1} / ${picks.length} · ${walkText(shop.s).toUpperCase()} · ${kindWord(shop.kind).toUpperCase()}${this.captionMark(shop)}`,
       }),
       h("div", { class: "show-caption-name", text: shop.name }),
       line ? h("div", { class: "show-caption-line", text: line }) : "",
@@ -1804,7 +1827,8 @@ export class StreetShow {
     const tick = (i: number) => (since >= 150 * i ? "done" : "wait");
     rows.push({ id: "street", key: "STREET", value: `${street.name ?? "unnamed"} · ${street.highway}`, state: tick(1) });
     if (street.streetDistanceM > 30) rows.push({ id: "matched", key: "MATCHED", value: `${distanceText(street.streetDistanceM)} from your position`, state: "info" });
-    rows.push({ id: "route", key: "ROUTE", value: `${distanceText(street.route.length)} ahead${street.route.length < 4990 ? " (the street ends)" : ""}`, state: tick(2) });
+    const placesEnd = this.shown < street.route.length - 1 ? ` · places up to ${distanceText(this.shown)}` : "";
+    rows.push({ id: "route", key: "ROUTE", value: `${distanceText(street.route.length)} ahead${street.route.length < 4990 ? " (the street ends)" : ""}${placesEnd}`, state: tick(2) });
     rows.push({ id: "places", key: "PLACES", value: `${street.shops.length}${street.placesFound ? ` of ${street.placesFound}` : ""}`, state: tick(3) });
     const named =
       this.picksState === "asking"
@@ -1905,7 +1929,7 @@ export class StreetShow {
     const street = this.street;
     if (!street) return;
     // Muse Spark's best known of this kind first, then the map's ranking; the map's alone when the model knows none.
-    const rules = pickGroup(street.shops, group, street.route.length, street.name);
+    const rules = pickGroup(street.shops, group, this.shown || street.route.length, street.name);
     const byId = new Map(street.shops.map((s) => [s.id, s]));
     const known = (this.aiBest[group.key] ?? []).map((id) => byId.get(id)).filter((s): s is ShopAhead => s !== undefined);
     const focus: Focus = {
@@ -1947,7 +1971,7 @@ export class StreetShow {
     const now = this.clock();
     this.focus = null;
     this.updateOverview();
-    const light = lightRun(this.route.along[0], street.route.length, [], TOUR_PACE);
+    const light = lightRun(this.route.along[0], this.reach(null), [], TOUR_PACE);
     const past = now - light.duration * 1000 - 1;
     this.run = {
       focus: null,
@@ -2050,6 +2074,19 @@ export class StreetShow {
     walk.lastFrame = now;
     walk.shown = { s: walk.shown.s + k * (walk.spot.s - walk.shown.s), offset: walk.shown.offset + k * (walk.spot.offset - walk.shown.offset) };
     return walk.shown;
+  }
+
+  /**
+   * The camera while walking: behind and above you, moved so your dot
+   * stands a little above the bar, the buttons and any open card (on a
+   * short screen they cover the lower third, where the follow camera alone
+   * would put it), with the street ahead above it.
+   */
+  private walkPose(at: { s: number; offset: number }): Pose {
+    const pose = followPose(this.route!, at.s, WALK_FOLLOW);
+    const sx = this.view.centerX ?? this.view.width / 2;
+    const sy = Math.max(this.insets.top + 140, this.labelBottom() - 64);
+    return poseKeeping(pose, this.view, this.walkPoint(at), sx, sy) ?? pose;
   }
 
   /** The dot on the ground: on the street's line, a little to the side you are on. */
@@ -2350,7 +2387,7 @@ export class StreetShow {
     const parts: (Node | null)[] = [
       h("div", { class: "show-card-kicker" }, h("i"), `${group.label.toUpperCase()} · ${kindWord(shop.kind).toUpperCase()}`),
       h("h3", { text: shop.name }),
-      h("p", { class: "show-card-where", text: this.walkAt && shop.s < this.walkAt.s - 5 ? `Behind you, on the ${shop.side}` : `${this.aheadText(shop)} ahead on the ${shop.side}` }),
+      h("p", { class: "show-card-where", text: this.cardWhere(shop) }),
       this.pickWhy.has(shop.id) && this.landmarks.includes(shop)
         ? h("p", { class: "show-card-quest", text: `✦ Landmark picked by Muse Spark: ${PICK_REASONS[this.pickWhy.get(shop.id)!].toLowerCase()}` })
         : this.aiBest[group.key]?.includes(shop.id)
@@ -2373,6 +2410,14 @@ export class StreetShow {
     ];
     this.cardEl.replaceChildren(...parts.filter((x): x is Node => x !== null));
     this.cardEl.classList.remove("hidden");
+  }
+
+  /** Where a place is, for its card: behind you, or how far ahead and on which side, with the walk when it is walkable. */
+  private cardWhere(shop: ShopAhead): string {
+    const d = this.aheadM(shop);
+    if (this.walkAt && d < -5) return `Behind you, on the ${shop.side}`;
+    const walk = d >= 0 && d <= WALK_MINUTES_UP_TO_M ? ` · ≈${walkMinutes(d)} min walk` : "";
+    return `${distanceText(Math.max(0, d))} ahead on the ${shop.side}${walk}`;
   }
 
   /** An empty street: the nearest famous street, in the bar above the buttons. */
@@ -2412,7 +2457,7 @@ export class StreetShow {
   private async share(): Promise<void> {
     if (!this.street) return;
     const quest = this.focus?.quest ?? null;
-    const canvas = drawShareCard({ street: this.street, photo: this.options.photo, quest });
+    const canvas = drawShareCard({ street: this.street, photo: this.options.photo, quest, landmarks: this.landmarks, reach: this.shown });
     try {
       if ((await shareCard(canvas, this.street.name ?? "What's Ahead")) === "saved") this.note("Saved the card as a picture", 3000);
     } catch (error) {
@@ -2497,7 +2542,7 @@ export class StreetShow {
   private applyPicks(picks: Picks, note: string): void {
     const street = this.street;
     if (!street) return;
-    const landmarks = landmarksFrom(picks, street.shops, this.ruleLandmarks, street.route.length);
+    const landmarks = landmarksFrom(picks, street.shops, this.ruleLandmarks, this.shown || street.route.length);
     const why = new Map(picks.landmarks.map((l) => [l.id, l.why] as const));
     this.pickWhy = new Map(landmarks.filter((s) => why.has(s.id)).map((s) => [s.id, why.get(s.id)!] as const));
     this.aiBest = picks.best;

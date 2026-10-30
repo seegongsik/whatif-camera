@@ -66,12 +66,7 @@ export function buildStreetAhead(input: StreetInput): StreetAhead | null {
     corridor,
   );
   const cut = input.maxShops !== undefined && found.length > input.maxShops;
-  const shops = cut
-    ? [...found]
-        .sort((a, b) => shopRank(b) - shopRank(a))
-        .slice(0, input.maxShops)
-        .sort((a, b) => a.s - b.s)
-    : found;
+  const shops = cut ? keepNearFirst(found, input.maxShops!) : found;
   return {
     source: input.source,
     attribution: input.attribution,
@@ -88,6 +83,27 @@ export function buildStreetAhead(input: StreetInput): StreetAhead | null {
     ...(input.notes && input.notes.length > 0 ? { notes: input.notes } : {}),
     ...(cut ? { placesFound: found.length } : {}),
   };
+}
+
+/** Within this distance of the camera (a walk of about 12 minutes) a busy street keeps nearly every place; beyond it, the most certain ones. */
+export const NEAR_M = 1000;
+/** Places kept beyond NEAR_M however busy the first kilometre is, so the rest of the street still shows. */
+export const FAR_MIN = 200;
+
+/**
+ * At most `max` places, the first kilometre first: a walker decides what
+ * is ahead from the places nearby, so those are not cut to make room for
+ * far ones. Within each part the most certain, then those with links
+ * (Overture's confidence; `shopRank`). In order along the street.
+ */
+export function keepNearFirst(found: readonly ShopAhead[], max: number): ShopAhead[] {
+  const byRank = (list: ShopAhead[]) => list.sort((a, b) => shopRank(b) - shopRank(a));
+  const near = byRank(found.filter((s) => s.s <= NEAR_M));
+  const far = byRank(found.filter((s) => s.s > NEAR_M));
+  // At least FAR_MIN beyond (a quarter of a small cap), more when the first kilometre leaves room.
+  const farKeep = Math.min(far.length, Math.max(Math.min(FAR_MIN, Math.floor(max / 4)), max - near.length));
+  const nearKeep = Math.min(near.length, max - farKeep);
+  return [...near.slice(0, nearKeep), ...far.slice(0, farKeep)].sort((a, b) => a.s - b.s);
 }
 
 /** The street's route back in local metres around where the camera stood. */
