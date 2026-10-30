@@ -10,7 +10,8 @@ import { takeCall } from "./limits.js";
 import { lookupFootprints, UpstreamError } from "./footprint-sources.js";
 import { SparkError } from "./spark.js";
 import { lookupStreet } from "./street-sources.js";
-import { questWithSpark, signsWithSpark } from "./street-spark.js";
+import { picksWithSpark, questWithSpark, signsWithSpark } from "./street-spark.js";
+import { isGroupKey, PICK_MAX_PLACES, type PickPlace } from "../src/street/picks.js";
 import { isSignPrompt, SamError, SIGN_PROMPT, SIGN_PROMPTS, signsWithSam } from "./sam.js";
 import { SHOP_CATEGORIES, type ShopCategory } from "../src/street/osm.js";
 import { isQuestTheme, type QuestPlace } from "../src/street/quest.js";
@@ -150,6 +151,42 @@ export async function handleQuest(request: Request, deps: Deps = {}): Promise<Re
     return json(await questWithSpark(places as QuestPlace[], body.theme, { localTime }, deps));
   } catch (error) {
     return sparkFailure(error, "quest");
+  }
+}
+
+/** A place to pick from as the page sends it, or null when anything is out of shape. */
+function pickPlaceFrom(value: unknown): PickPlace | null {
+  if (typeof value !== "object" || value === null) return null;
+  const v = value as Record<string, unknown>;
+  const name = text(v.name, 80);
+  const kind = text(v.kind, 40);
+  if (typeof v.id !== "string" || !ID_PATTERN.test(v.id) || !name || !kind || !isGroupKey(v.group)) return null;
+  if (v.side !== "left" && v.side !== "right") return null;
+  if (typeof v.distanceM !== "number" || !Number.isFinite(v.distanceM) || v.distanceM < 0 || v.distanceM > 6000) return null;
+  return { id: v.id, name, kind, group: v.group, side: v.side, distanceM: Math.round(v.distanceM) };
+}
+
+/** POST {places, street?, near?}: the places the show names, picked by Muse Spark Open from the street's places (list numbers and a reason word only). */
+export async function handleLandmarks(request: Request, deps: Deps = {}): Promise<Response> {
+  if (request.method !== "POST") return json({ error: "use POST" }, 405);
+  const body = await jsonBody(request);
+  if (!body) return json({ error: "body must be a JSON object" }, 400);
+  const list = Array.isArray(body.places) && body.places.length > 0 && body.places.length <= PICK_MAX_PLACES ? body.places.map(pickPlaceFrom) : null;
+  const places = list && list.every((p) => p !== null) ? (list as PickPlace[]) : null;
+  if (!places || new Set(places.map((p) => p.id)).size !== places.length) {
+    return json({ error: `places must be 1 to ${PICK_MAX_PLACES} distinct places with id, name, kind, group, side and distanceM` }, 400);
+  }
+  const street = body.street === undefined ? undefined : text(body.street, 80);
+  if (body.street !== undefined && !street) return json({ error: "street must be a name of 1 to 80 characters" }, 400);
+  const near = body.near as { lat?: unknown; lon?: unknown } | undefined;
+  const nearOk = near !== undefined && typeof near === "object" && near !== null && typeof near.lat === "number" && typeof near.lon === "number" && Math.abs(near.lat) <= 85 && Math.abs(near.lon) <= 180;
+  if (near !== undefined && !nearOk) return json({ error: "near must be {lat, lon}" }, 400);
+  const gate = sparkGate(deps, "names the places by the map's own ranking");
+  if (gate) return gate;
+  try {
+    return json(await picksWithSpark(places, { street, near: nearOk ? { lat: near.lat as number, lon: near.lon as number } : undefined }, deps));
+  } catch (error) {
+    return sparkFailure(error, "picks");
   }
 }
 

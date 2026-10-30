@@ -9,9 +9,10 @@
  */
 import { modelCanvas, modelJpeg } from "../capture/model-photo.js";
 import type { CaptureMeta } from "../capture/types.js";
-import { normDeg, type EN } from "../geo/enu.js";
+import { localFrame, normDeg, type EN, type LocalFrame } from "../geo/enu.js";
 import { h, svg } from "../ui/dom.js";
 import type { ShopAhead } from "./ahead.js";
+import { landmarksFrom, mergePicks, pickCandidates, PICK_MIN_PLACES, PICK_REASONS, type PickPlace, type PickReason, type Picks } from "./picks.js";
 import type { Quest } from "./quest.js";
 import { QuestSheet } from "./quest-ui.js";
 import { pointAt, type Route } from "./route.js";
@@ -20,8 +21,12 @@ import {
   chaseTrack,
   clampPose,
   dotSpot,
+  arcPoint,
   easeInOut,
   easeOutBack,
+  FLIGHT,
+  flightLength,
+  flightProgress,
   focalPx,
   IMPACT_MS,
   impactPunch,
@@ -48,9 +53,11 @@ import {
   screenSide,
   TOUR_FOLLOW,
   TOUR_PACE,
+  WALK_FOLLOW,
   zoomAbout,
   type ExploreLimits,
   type Group,
+  type GroupKey,
   type LightRun,
   type Pose,
   type Projected,
@@ -62,11 +69,18 @@ import { cutSign, drawSignBoxes, numberSigns, readSamReply, signsForPlaces, type
 import { spotPlaces, type Spotted } from "./spotted.js";
 import { layoutLabels, roadSpan, type Box, type LabelInput, type PlacedLabel, type ScreenPoint } from "./street-labels.js";
 import { localRoute, type StreetAhead } from "./street.js";
+import { nextPlace, passed, SIMULATED_SPEEDUP, simulatedFix, walkStep, type WalkFix, type WalkSpot } from "./walk.js";
 
 /** Shortest time the radar shows, so it reads even when the street comes back at once. */
 const MIN_COMPUTE_MS = 2400;
 const PHOTO_SCAN_MS = 1000;
 const PHOTO_FOLD_MS = 800;
+/** The first run waits this long at most, after the street is in, for Muse Spark's picks; then the map's ranking names the places. */
+const PICK_WAIT_MS = 5000;
+/** Muse Spark's line stays in the readings this long before the light sets off. */
+const PICK_HOLD_MS = 600;
+/** Picks that come in after the first run pop up over the whole street one after another, this far apart. */
+const POP_STEP_MS = 380;
 /** The sign check waits this long at most for SAM 3.1's signs, then reads the plain photo as before. */
 const SAM_WAIT_MS = 3000;
 /** A sign's picture is cut from the full photo when it comes out at most this wide. */
@@ -108,6 +122,16 @@ export type StreetShowOptions = {
   elsewhere?: { label: string; go: () => void };
   /** Ask SAM 3.1 for the signs in the photo (true unless the page says no, ?sam=0). */
   sam?: boolean;
+  /** Muse Spark's picks once they are in, to keep with the street (a street opened again uses them without asking). */
+  onPicks?: (picks: Picks) => void;
+  /** The street came from the live camera: once the light has run, the dot follows the phone along it. */
+  live?: boolean;
+  /** No phone on this street (a demo street, the map alone): a SIMULATED walk down it is offered instead. */
+  simulate?: boolean;
+  /** A street seen before, opened again: straight to the whole street, without the run. */
+  resume?: boolean;
+  /** Off the street for a while: a new photo where you stand. */
+  onNewStreet?: () => void;
 };
 
 /** What the light is showing: every place (null), one kind of place, or a quest's stops. */
@@ -139,6 +163,35 @@ type Run = {
 type LabelItem = TagStyle & { shop?: ShopAhead };
 
 type ConsoleRow = { id: string; key: string; value: string; state: "wait" | "done" | "info" | "fail" };
+
+/** A sign Muse Spark read in one of SAM's boxes: its picture, cut from the photo, flies from that box to its place. */
+type FlightSign = { shop: ShopAhead; picture: HTMLCanvasElement; box: SignBox; landedAt: number | null };
+
+/** What the sign check found: the line saying so, the pictures for that line, and the signs to fly to the street. */
+type SignNews = { text: string; pictures: { src: string; alt: string }[]; caption: string; signs: FlightSign[] };
+
+/** The green of a sign read in the photo. */
+const READ_GREEN = "#4dff9a";
+
+/** Off the street this long, and a new photo is offered. */
+const OFF_STREET_MS = 10_000;
+
+/** Walking the street after the show: the phone's fixes (or a SIMULATED walk) moving a dot along it. */
+type Walk = {
+  mode: "live" | "simulated";
+  spot: WalkSpot | null;
+  /** Where the dot is drawn: it glides to each new fix. */
+  shown: { s: number; offset: number } | null;
+  lastFrame: number;
+  /** The camera follows the dot until the visitor takes it. */
+  follow: boolean;
+  camFrom: Pose;
+  camAt: number;
+  offSince: number | null;
+  watch: number | null;
+  timer: number;
+  started: number;
+};
 
 /** A four-pointed spark, filled (24 × 24 view box). */
 const SPARKLE_PATH = "M12 2.5c.5 4.6 2.9 7 9.5 9.5-6.6 2.5-9 4.9-9.5 9.5-.5-4.6-2.9-7-9.5-9.5 6.6-2.5 9-4.9 9.5-9.5z";
@@ -193,6 +246,13 @@ export class StreetShow {
   private readonly creditEl: HTMLElement;
   private readonly cardEl: HTMLElement;
   private readonly questBarEl: HTMLElement;
+  private readonly walkBarEl: HTMLElement;
+  private walkBarKey = "";
+  private walk: Walk | null = null;
+  /** The dot's spot in this frame, while walking. */
+  private walkAt: { s: number; offset: number } | null = null;
+  private local: LocalFrame | null = null;
+  private wake: { release: () => Promise<void> } | null = null;
   private readonly captionEl: HTMLElement;
   private captionKey = "";
   private readonly questButton: HTMLButtonElement;
@@ -204,6 +264,27 @@ export class StreetShow {
   private line: { points: EN[]; along: number[] } | null = null;
   private spots = new Map<string, EN>();
   private landmarks: ShopAhead[] = [];
+  /** The landmarks by the map's own ranking: what the show names when Muse Spark does not answer. */
+  private ruleLandmarks: ShopAhead[] = [];
+  /** Muse Spark's picks: not asked (too few places, a SYNTHETIC street), asking, in, or failed (the map's ranking stands). */
+  private picksState: "off" | "asking" | "done" | "failed" = "off";
+  private picksAt = 0;
+  private picksNote = "";
+  private pickCount = 0;
+  /** The skip button during the readings: no more waiting for the picks. */
+  private pickWaitOver = false;
+  /** Why Muse Spark picked each landmark it picked. */
+  private pickWhy = new Map<string, PickReason>();
+  /** Muse Spark's best-known places of each chip's kind. */
+  private aiBest: Picks["best"] = {};
+  /** Picks that came in while the first run was naming the map's: they take over once it ends. */
+  private pendingLandmarks: ShopAhead[] | null = null;
+  /** When each of Muse Spark's late picks pops up over the whole street (show time). */
+  private popAt = new Map<string, number>();
+  /** Signs read during the first run: they fly to the street once it ends. */
+  private flightPending: SignNews | null = null;
+  /** The signs' flight from the photo to the street, while it plays. */
+  private flight: { at: number; news: SignNews; from: Pose; pose: Pose } | null = null;
   private failure: string | null = null;
   private failedAt = 0;
   private phase: "computing" | "failed" | "run" | "settle" | "overview" = "computing";
@@ -282,9 +363,10 @@ export class StreetShow {
     this.barEl = h("div", { class: "show-bar" });
     this.chipsEl = h("div", { class: "show-chips" });
     this.questBarEl = h("div", { class: "show-quest hidden" });
+    this.walkBarEl = h("div", { class: "show-quest show-walk hidden" });
     this.creditEl = h("div", { class: "show-credit", text: "Map © OpenStreetMap contributors" });
     this.captionEl = h("div", { class: "show-caption hidden" });
-    this.bottomEl = h("div", { class: "show-bottom away" }, this.questBarEl, h("div", { class: "show-actions" }, this.questButton, this.shareButton), this.barEl, this.chipsEl);
+    this.bottomEl = h("div", { class: "show-bottom away" }, this.questBarEl, this.walkBarEl, h("div", { class: "show-actions" }, this.questButton, this.shareButton), this.barEl, this.chipsEl);
     this.cardEl = h("div", { class: "show-card hidden" });
     this.element = h(
       "main",
@@ -313,6 +395,7 @@ export class StreetShow {
     // Safari's own page pinch, over the street.
     this.canvas.addEventListener("gesturestart", (e) => e.preventDefault());
     window.addEventListener("resize", this.onResize);
+    document.addEventListener("visibilitychange", this.onVisible);
   }
 
   /** Starts drawing; call once the element is in the page. */
@@ -328,19 +411,22 @@ export class StreetShow {
     tick();
   }
 
-  /** The street is in: the show goes on once the radar has had its moment. */
-  load(street: StreetAhead): void {
+  /** The street is in: the show goes on once the radar has had its moment. `picks`: Muse Spark's, kept from an earlier look at this street. */
+  load(street: StreetAhead, picks?: Picks): void {
     if (this.disposed) return;
     const now = this.clock();
     this.street = street;
     this.route = localRoute(street);
+    this.local = localFrame(street.origin);
     this.line = sampleRoute(this.route, 10);
     this.spots = new Map(street.shops.map((shop) => [shop.id, dotSpot(this.route!, shop)]));
     this.exploreBox = boxAround([...this.line.points, { x: 0, y: 0 }], 300);
     this.landmarks = pickLandmarks(street.shops, street.route.length, street.name);
+    this.ruleLandmarks = this.landmarks;
     this.loadedAt = now;
     const minimum = this.options.photo ? PHOTO_SCAN_MS + PHOTO_FOLD_MS + 900 : MIN_COMPUTE_MS;
-    this.revealAt = Math.max(now, minimum) + HOLD_MS;
+    this.revealAt = this.options.resume ? now : Math.max(now, minimum) + HOLD_MS;
+    if (this.options.resume) this.pickWaitOver = true;
     this.buildChips();
     this.measureInsets();
     const credits = street.attribution.replace(/ \((ODbL|CDLA-Permissive-2\.0)\)/g, "");
@@ -355,6 +441,13 @@ export class StreetShow {
       this.offerElsewhere();
     }
     if (this.options.photo) void this.checkSigns();
+    // Muse Spark picks the places to name, unless the street is too quiet to pick from (or invented).
+    const candidates = pickCandidates(street.shops, street.route.length, street.name);
+    this.pickCount = candidates.length;
+    if (picks) {
+      this.applyPicks(picks, "kept from your last look");
+      this.picksAt = -Infinity;
+    } else if (!street.synthetic && candidates.length >= PICK_MIN_PLACES) void this.askPicks(candidates);
   }
 
   /** The lookup failed: the radar stays, the reason shows, with a way to try again. */
@@ -366,8 +459,10 @@ export class StreetShow {
   }
 
   dispose(): void {
+    this.stopWalk();
     this.disposed = true;
     this.abort.abort();
+    document.removeEventListener("visibilitychange", this.onVisible);
     cancelAnimationFrame(this.raf);
     window.clearTimeout(this.noteTimer);
     window.removeEventListener("resize", this.onResize);
@@ -380,13 +475,16 @@ export class StreetShow {
   }
 
   /** For the browser tests: where the show is. */
-  state(): { phase: string; loaded: boolean; focus: string | null; landmarks: string[]; labels: string[] } {
+  state(): { phase: string; loaded: boolean; focus: string | null; landmarks: string[]; labels: string[]; picks: string; flight: boolean; walk: string | null } {
     return {
       phase: this.phase,
       loaded: this.street !== null,
       focus: this.focus?.key ?? null,
       landmarks: this.landmarks.map((s) => s.name),
       labels: this.labels.map((l) => l.lines.join(" ")),
+      picks: this.picksState,
+      flight: this.flight !== null,
+      walk: this.walk ? `${this.walk.mode} ${Math.round(this.walk.spot?.s ?? 0)} m` : null,
     };
   }
 
@@ -439,22 +537,43 @@ export class StreetShow {
 
   // ----- Time -----
 
+  /** The light sets off once the radar has had its moment and Muse Spark has answered (or had its time). */
+  private readyToReveal(now: number): boolean {
+    if (now < this.revealAt) return false;
+    if (this.picksState === "asking") return this.pickWaitOver || now >= this.loadedAt + PICK_WAIT_MS;
+    return this.pickWaitOver || now >= this.picksAt + PICK_HOLD_MS;
+  }
+
   private update(now: number): void {
-    if (this.phase === "computing" && this.street && now >= this.revealAt) {
+    if (this.phase === "computing" && this.street && this.readyToReveal(now)) {
       this.beginRun(null, this.revealAt, true);
-      // With reduced motion the light's run is skipped: straight to the whole street.
-      if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) this.skip();
+      // With reduced motion the light's run is skipped, and a street opened again goes straight to the whole of it.
+      if (this.options.resume || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) this.skip();
     }
     const run = this.run;
     if (this.phase === "run" && run && now >= run.start + run.light.duration * 1000) {
       this.phase = "settle";
       this.settleAt = run.start + run.light.duration * 1000;
       this.settleFrom = followPose(this.route!, run.chase(run.light.duration), run.first ? FOLLOW : TOUR_FOLLOW);
+      if (this.walk) {
+        this.walk.camFrom = this.settleFrom;
+        this.walk.camAt = this.settleAt;
+      }
       if (run.first) {
         this.revealed = true;
+        if (this.flightPending) {
+          this.startFlight(this.flightPending, now + 500);
+          this.flightPending = null;
+        }
+        this.offerWalk();
+        if (this.pendingLandmarks) {
+          this.landmarks = this.pendingLandmarks;
+          this.pendingLandmarks = null;
+          this.popPicks(now + 600);
+        }
         this.questButton.classList.remove("hidden");
         this.shareButton.classList.remove("hidden");
-        this.hintZoom(3);
+        this.hintZoom(6);
       }
       this.bottomEl.classList.remove("away");
       this.skipEl.textContent = "↺";
@@ -463,6 +582,15 @@ export class StreetShow {
       this.measureInsets();
     }
     if (this.phase === "settle" && now >= this.settleAt + SETTLE_MS) this.phase = "overview";
+    const flight = this.flight;
+    if (flight && now >= flight.at + flightLength(flight.news.signs.length)) {
+      this.flight = null;
+      if (this.walk) {
+        this.walk.camFrom = this.lastPose;
+        this.walk.camAt = now;
+      }
+      this.note(flight.news.text, 7000, true);
+    }
   }
 
   /** Sends the light down the street for one focus (null: every place), from where the camera is now. */
@@ -482,6 +610,12 @@ export class StreetShow {
     for (const shop of street.shops) if (!focus || focus.match(shop)) born.set(shop.id, start + light.when(shop.s) * 1000);
     this.run = { focus, first, from: first ? radarPose(this.options.headingDeg) : this.lastPose, beginAt: at, moveMs, start, light, chase: chaseTrack(light), born };
     this.felt.clear();
+    this.popAt.clear();
+    // A run cuts the signs' flight short; the line about them still shows.
+    if (this.flight) {
+      this.note(this.flight.news.text, 7000, true);
+      this.flight = null;
+    }
     this.phase = "run";
     this.skipEl.textContent = "Skip ›";
     this.skipEl.removeAttribute("aria-label");
@@ -494,6 +628,7 @@ export class StreetShow {
     const now = this.clock();
     if (this.phase === "computing" && this.street) {
       this.revealAt = now;
+      this.pickWaitOver = true;
       this.update(now);
     }
     const run = this.run;
@@ -528,6 +663,21 @@ export class StreetShow {
       }
       return this.userPose ?? this.overview;
     }
+    // The signs' flight: the camera glides in over where you stood, then back.
+    const flight = this.flight;
+    if (flight && (this.phase === "settle" || this.phase === "overview")) {
+      const t = now - flight.at;
+      const out = flightLength(flight.news.signs.length) - FLIGHT.outMs;
+      if (t < out) return lerpPose(flight.from, flight.pose, easeInOut(t / FLIGHT.glideMs));
+      const back = this.walk?.follow && this.walkAt ? followPose(this.route!, this.walkAt.s, WALK_FOLLOW) : this.overview;
+      return lerpPose(flight.pose, back, easeInOut((t - out) / FLIGHT.outMs));
+    }
+    // Walking: the camera keeps the dot near the bottom, the street ahead above it.
+    if (this.walk?.follow && this.walkAt && (this.phase === "settle" || this.phase === "overview")) {
+      const target = followPose(this.route!, this.walkAt.s, WALK_FOLLOW);
+      const k = easeInOut((now - this.walk.camAt) / 1200);
+      return k >= 1 ? target : lerpPose(this.walk.camFrom, target, k);
+    }
     switch (this.phase) {
       case "computing":
       case "failed":
@@ -557,6 +707,7 @@ export class StreetShow {
   private frame(now: number): void {
     if (this.disposed) return;
     this.update(now);
+    this.walkAt = this.walkShown(now);
     const pose = this.poseAt(now);
     this.lastPose = pose;
     const project = projector(pose, this.view);
@@ -579,6 +730,7 @@ export class StreetShow {
       if (this.phase === "run") this.drawHead(project, head);
       else this.drawPulse(project, now);
       this.drawPicks(project, now, head);
+      this.drawFlight(project, now);
       this.drawRail(now, head);
     }
     this.drawPhoto(now);
@@ -911,6 +1063,8 @@ export class StreetShow {
         this.strokeLine(pts, line.along, head - 200, head, pose, [[tail, 0.5, 6]]);
       }
     }
+    // Walking: the next stretch of the street lit up ahead of you.
+    if (this.walkAt && !running) this.strokeLine(pts, line.along, this.walkAt.s, this.walkAt.s + 400, pose, [[LIGHT, 0.14, 9], [LIGHT, 0.6, 2.4]]);
     ctx.globalCompositeOperation = "source-over";
   }
 
@@ -996,7 +1150,8 @@ export class StreetShow {
       const r = Math.min(3.4, Math.max(1.5, 2.2 * Math.sqrt(q.pxPerM / REF_PPM)));
       const pop = age < BIRTH_MS ? 1 + (1 - age / BIRTH_MS) ** 2 : 1;
       const size = r * 5.5 * pop;
-      ctx.globalAlpha = this.fog(q.depth, pose);
+      // Walking: the places behind you dim.
+      ctx.globalAlpha = this.fog(q.depth, pose) * (this.walkAt && shop.s < this.walkAt.s - 8 ? 0.35 : 1);
       ctx.drawImage(glow(color, true), q.x - size / 2, q.y - size / 2, size, size);
       if (age < BIRTH_MS) {
         const t = age / BIRTH_MS;
@@ -1024,7 +1179,41 @@ export class StreetShow {
   }
 
   private drawYou(project: (p: EN, z?: number) => Projected | null, alpha: number): void {
-    const q = project({ x: 0, y: 0 });
+    const walkAt = this.walkAt;
+    if (walkAt && alpha > 0.01) {
+      // Walking: where the photo was taken stays marked, and the dot is where you are now.
+      this.drawMarker(project({ x: 0, y: 0 }), alpha * 0.5, this.options.photo ? "PHOTO" : "START");
+      const at = this.walkPoint(walkAt);
+      this.drawAccuracy(project, at, this.walk?.spot?.accuracyM ?? 0);
+      this.drawMarker(project(at), alpha, this.walk?.mode === "simulated" ? "YOU · SIMULATED" : "YOU");
+      return;
+    }
+    this.drawMarker(project({ x: 0, y: 0 }), alpha, "YOU");
+  }
+
+  /** The fix's uncertainty as a faint disc on the ground around the dot. */
+  private drawAccuracy(project: (p: EN, z?: number) => Projected | null, at: EN, radius: number): void {
+    if (radius < 4) return;
+    const ctx = this.ctx;
+    ctx.beginPath();
+    let open = false;
+    for (let i = 0; i <= 32; i += 1) {
+      const a = (i / 32) * Math.PI * 2;
+      const p = project({ x: at.x + Math.cos(a) * radius, y: at.y + Math.sin(a) * radius });
+      if (!p) continue;
+      if (open) ctx.lineTo(p.x, p.y);
+      else ctx.moveTo(p.x, p.y);
+      open = true;
+    }
+    ctx.closePath();
+    ctx.fillStyle = "rgba(255,255,255,0.07)";
+    ctx.strokeStyle = "rgba(255,255,255,0.22)";
+    ctx.lineWidth = 1;
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  private drawMarker(q: Projected | null, alpha: number, word: string): void {
     if (!q || alpha <= 0.01) return;
     const ctx = this.ctx;
     ctx.globalAlpha = alpha;
@@ -1043,7 +1232,7 @@ export class StreetShow {
     ctx.font = `700 10px ${MONO}`;
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
-    ctx.fillText("YOU", q.x, q.y + 10);
+    ctx.fillText(word, q.x, q.y + 10);
     ctx.globalAlpha = 1;
   }
 
@@ -1100,19 +1289,19 @@ export class StreetShow {
       side: screenSide(project, route, shop),
       priority,
       name: `${this.spotted.has(shop.id) ? "✓ " : ""}${shop.name}`,
-      detail: `${distanceText(shop.s)} · ${kindWord(shop.kind)}`.toUpperCase(),
+      detail: this.tagDetail(shop),
       item: { shop, color, number },
       font,
     });
     picks.forEach((shop, i) => {
-      const born = this.bornAt(shop) ?? (this.phase === "run" ? null : -Infinity);
+      const born = this.labelBorn(shop) ?? (this.phase === "run" ? null : -Infinity);
       if (born === null || born > now) return;
       const q = project(this.spots.get(shop.id)!);
       if (!q) return;
       const color = this.shopColor(shop);
       const age = now - born;
       if (age < IMPACT_MS) this.drawImpact(project, this.spots.get(shop.id)!, q, age, color, this.lastPose);
-      if (age >= 0 && age < IMPACT_MS && this.run?.first && !this.felt.has(shop.id)) {
+      if (age >= 0 && age < IMPACT_MS && this.run?.first && !this.felt.has(shop.id) && !this.popAt.has(shop.id)) {
         this.felt.add(shop.id);
         navigator.vibrate?.(14);
       }
@@ -1130,11 +1319,23 @@ export class StreetShow {
       const q = project(this.spots.get(this.selected.id)!);
       if (q) inputs.push(tag(this.selected, q, -Infinity, this.shopColor(this.selected)));
     }
+    // The signs flown in from the photo get their names as they land.
+    this.flight?.news.signs.forEach((sign, i) => {
+      if (sign.landedAt === null || picks.includes(sign.shop) || sign.shop === this.selected) return;
+      const q = project(this.spots.get(sign.shop.id)!);
+      if (q) inputs.push(tag(sign.shop, q, -1e8 + i, READ_GREEN));
+    });
     const area = { left: 8, top: this.insets.top, right: this.view.width - RULER_PX, bottom: this.labelBottom() };
     const blocked: Box[] = [];
     const you = project({ x: 0, y: 0 });
-    // The "you" marker: its ring and the word under it.
+    // The "you" marker: its ring and the word under it (and, walking, the dot where you are now).
     if (you) blocked.push({ x: you.x - 12, y: you.y - 9, w: 24, h: 33 });
+    const walker = this.walkAt ? project(this.walkPoint(this.walkAt)) : null;
+    if (walker) blocked.push({ x: walker.x - 44, y: walker.y - 9, w: 88, h: 33 });
+    if (this.flight && this.options.photo) {
+      const thumb = this.flightThumb();
+      blocked.push({ x: thumb.x - 8, y: thumb.y - 8, w: thumb.w + 16, h: thumb.h + 34 });
+    }
     if (this.phase !== "run" || head >= this.run!.light.to - 1) {
       const end = project(pointAt(route, route.length).at);
       if (end) {
@@ -1146,7 +1347,7 @@ export class StreetShow {
       }
     }
     // Exploring close in: every place in view gets its name, those nearest the middle first, as room allows.
-    const exploring = this.userPose !== null && this.phase !== "run";
+    const exploring = (this.userPose !== null || Boolean(this.walk?.follow && this.walkAt)) && this.phase !== "run";
     if (exploring && groundScale(this.lastPose, this.view) >= NAMES_PPM) {
       const cx = this.view.centerX ?? this.view.width / 2;
       const cy = (area.top + area.bottom) / 2;
@@ -1166,6 +1367,42 @@ export class StreetShow {
     for (const label of this.labels) this.drawLabel(label, now);
   }
 
+  /** When a tag's place lit up: its late pop over the whole street, or when the light reached it. */
+  private labelBorn(shop: ShopAhead): number | null {
+    return (!this.focus ? this.popAt.get(shop.id) : undefined) ?? this.bornAt(shop);
+  }
+
+  /** Muse Spark's landmarks pop up over the whole street one after another, from the nearest. */
+  private popPicks(from: number): void {
+    const picked = this.landmarks.filter((s) => this.pickWhy.has(s.id));
+    this.popAt = new Map(picked.map((s, i) => [s.id, from + i * POP_STEP_MS] as const));
+    if (picked.length > 0) this.note(`✦ Muse Spark picked ${picked.length === 1 ? "a landmark" : `${picked.length} landmarks`} it knows by name.`, 4500, true);
+  }
+
+  /** Muse Spark's reason for naming a place on the street now shown (a landmark), if it picked it. */
+  private whyPicked(shop: ShopAhead): PickReason | undefined {
+    return !this.focus && this.landmarks.includes(shop) ? this.pickWhy.get(shop.id) : undefined;
+  }
+
+  /** Whether Muse Spark named this place among the best known of the chip now shown. */
+  private bestPicked(shop: ShopAhead): boolean {
+    return Boolean(this.focus && !this.focus.quest && this.aiBest[this.focus.key as GroupKey]?.includes(shop.id));
+  }
+
+  /** How far ahead a place is: from you while walking the street, else from where the photo was taken. */
+  private aheadText(shop: ShopAhead): string {
+    if (!this.walkAt) return distanceText(shop.s);
+    const d = shop.s - this.walkAt.s;
+    return d < -5 ? "behind" : distanceText(Math.max(0, d));
+  }
+
+  /** A tag's second line: distance and kind; a place Muse Spark picked carries its spark, and a landmark its reason. */
+  private tagDetail(shop: ShopAhead): string {
+    const why = this.whyPicked(shop);
+    if (why) return `✦ ${PICK_REASONS[why]} · ${this.aheadText(shop)}`.toUpperCase();
+    return `${this.bestPicked(shop) ? "✦ " : ""}${this.aheadText(shop)} · ${kindWord(shop.kind)}`.toUpperCase();
+  }
+
   /**
    * A landmark's arrival: two rings run out over the ground from it, a
    * flash at the place and a wash of its colour over the picture. Strongest
@@ -1173,7 +1410,7 @@ export class StreetShow {
    */
   private drawImpact(project: (p: EN, z?: number) => Projected | null, spot: EN, q: Projected, age: number, color: string, pose: Pose): void {
     const ctx = this.ctx;
-    const strength = this.run?.first ? 1 : this.focus?.quest ? 0.8 : 0.6;
+    const strength = this.popAt.size > 0 && !this.focus ? 0.6 : this.run?.first ? 1 : this.focus?.quest ? 0.8 : 0.6;
     ctx.globalCompositeOperation = "lighter";
     for (let k = 0; k < 2; k += 1) {
       const t = (age - k * 140) / IMPACT_MS;
@@ -1214,6 +1451,150 @@ export class StreetShow {
     ctx.globalCompositeOperation = "source-over";
   }
 
+  /** Where the photo shows during the signs' flight: small, at the top, its own proportions. */
+  private flightThumb(): { x: number; y: number; w: number; h: number } {
+    const photo = this.options.photo!;
+    let w = Math.min(176, Math.round(this.view.width * 0.4));
+    let hgt = Math.round((w * photo.height) / photo.width);
+    const most = Math.round(this.view.height * 0.28);
+    if (hgt > most) {
+      hgt = most;
+      w = Math.round((hgt * photo.width) / photo.height);
+    }
+    const cx = this.view.centerX ?? this.view.width / 2;
+    return { x: Math.round(cx - w / 2), y: this.insets.top + 4, w, h: hgt };
+  }
+
+  /**
+   * The signs Muse Spark read, flying from the photo to the street: the
+   * photo shows small at the top with SAM 3.1's boxes on it, then each read
+   * sign, cut out along SAM's outline, lifts out of its box and lands on its
+   * place's dot with a tick, and the place gets its name.
+   */
+  private drawFlight(project: (p: EN, z?: number) => Projected | null, now: number): void {
+    const flight = this.flight;
+    const photo = this.options.photo;
+    const model = this.model;
+    if (!flight || !photo || !model) return;
+    const t = now - flight.at;
+    if (t < 0) return;
+    const ctx = this.ctx;
+    const signs = flight.news.signs;
+    const total = flightLength(signs.length);
+    const rect = this.flightThumb();
+    const sx = rect.w / model.canvas.width;
+    const sy = rect.h / model.canvas.height;
+    const alpha = Math.min(easeInOut((t - 250) / 450), 1 - easeInOut((t - (total - FLIGHT.outMs - 300)) / 500));
+    if (alpha > 0.01) {
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.shadowColor = "rgba(0,0,0,0.7)";
+      ctx.shadowBlur = 18;
+      ctx.fillStyle = "#000";
+      ctx.beginPath();
+      ctx.roundRect(rect.x, rect.y, rect.w, rect.h, 10);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.save();
+      ctx.clip();
+      ctx.drawImage(photo, rect.x, rect.y, rect.w, rect.h);
+      ctx.restore();
+      ctx.strokeStyle = rgba(LIGHT, 0.85);
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      // SAM's boxes in yellow; a read sign's box glows green just before it flies.
+      for (const box of this.signBoxes) {
+        const i = signs.findIndex((sign) => sign.box === box);
+        const lift = i >= 0 ? (t - FLIGHT.firstMs - i * FLIGHT.stepMs) / 300 : -1;
+        ctx.strokeStyle = lift > -1 && lift < 1 ? READ_GREEN : "rgba(255,230,0,0.85)";
+        ctx.lineWidth = lift > -1 && lift < 1 ? 2 : 1;
+        ctx.strokeRect(rect.x + box.x1 * sx, rect.y + box.y1 * sy, (box.x2 - box.x1) * sx, (box.y2 - box.y1) * sy);
+      }
+      ctx.font = `600 10px ${MONO}`;
+      ctx.fillStyle = "rgba(255,255,255,0.82)";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.fillText(`SAM 3.1 · ${this.samFound} SIGNS · MUSE SPARK READ ${signs.length}`, rect.x + rect.w / 2, rect.y + rect.h + 7);
+      ctx.restore();
+    }
+    const fade = 1 - easeInOut((t - (total - FLIGHT.outMs)) / FLIGHT.outMs);
+    signs.forEach((sign, i) => {
+      const k = flightProgress(i, t);
+      if (k <= 0) return;
+      const spot = this.spots.get(sign.shop.id);
+      const q = spot ? project(spot) : null;
+      if (!spot || !q) return;
+      const b = sign.box;
+      const aspect = sign.picture.width / Math.max(1, sign.picture.height);
+      const endH = 30;
+      const to = { x: q.x, y: q.y - endH / 2 - 10 };
+      let at = to;
+      let hgt = endH;
+      if (k < 1) {
+        const from = { x: rect.x + ((b.x1 + b.x2) / 2) * sx, y: rect.y + ((b.y1 + b.y2) / 2) * sy };
+        at = arcPoint(from, to, k, 70);
+        hgt = Math.max(8, (b.y2 - b.y1) * sy) + (endH - Math.max(8, (b.y2 - b.y1) * sy)) * k;
+      } else if (sign.landedAt === null) {
+        sign.landedAt = now;
+        navigator.vibrate?.(10);
+      }
+      if (sign.landedAt !== null && now - sign.landedAt < IMPACT_MS) this.drawImpact(project, spot, q, now - sign.landedAt, READ_GREEN, this.lastPose);
+      const w = hgt * aspect;
+      ctx.save();
+      ctx.globalAlpha = k < 1 ? 1 : fade;
+      ctx.shadowColor = "rgba(0,0,0,0.65)";
+      ctx.shadowBlur = 10;
+      ctx.drawImage(sign.picture, at.x - w / 2, at.y - hgt / 2, w, hgt);
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = k < 1 ? "#ffffff" : READ_GREEN;
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(at.x - w / 2, at.y - hgt / 2, w, hgt);
+      if (k >= 1) {
+        // The tick: Muse Spark read this name, SAM drew its outline.
+        ctx.fillStyle = READ_GREEN;
+        ctx.beginPath();
+        ctx.arc(at.x + w / 2, at.y - hgt / 2, 7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#00220f";
+        ctx.font = `800 10px ${SANS}`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("✓", at.x + w / 2, at.y - hgt / 2 + 0.5);
+      }
+      ctx.restore();
+    });
+  }
+
+  /** What the sign check found comes on screen: as a flight to the street once the first run is over, else as the line with the pictures. */
+  private signNews(news: SignNews): void {
+    const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (news.signs.length > 0 && !still && this.route) {
+      if (this.phase === "computing" || (this.phase === "run" && this.run?.first)) {
+        this.flightPending = news;
+        return;
+      }
+      if ((this.phase === "settle" || this.phase === "overview") && !this.userPose && !this.focus && this.cardEl.classList.contains("hidden")) {
+        this.startFlight(news, this.clock() + 200);
+        return;
+      }
+    }
+    this.note(news.text, 9000, true, news.pictures, news.caption);
+  }
+
+  /** The camera for the flight frames where you stood and the places whose signs fly, below the photo. */
+  private startFlight(news: SignNews, at: number): void {
+    const route = this.route;
+    if (!route || !this.options.photo) return;
+    const spots = news.signs.map((sign) => this.spots.get(sign.shop.id)).filter((p): p is EN => p !== undefined);
+    const far = Math.max(150, ...news.signs.map((sign) => sign.shop.s + 60));
+    // From behind you to past the farthest sign, so the street runs up the screen as in the run.
+    const pts = [pointAt(route, Math.max(route.along[0], -20)).at, { x: 0, y: 0 }, ...spots, pointAt(route, far).at];
+    const thumb = this.flightThumb();
+    const side = Math.max(60, Math.round((this.view.width - RULER_PX) * 0.27));
+    const pose = overviewPose(pts, this.view, { top: thumb.y + thumb.h + 30, bottom: this.insets.bottom + 20, left: side, right: side + RULER_PX });
+    this.flight = { at, news, from: this.lastPose, pose };
+  }
+
   /** The lowest a tag may reach: above the bottom bar, and above the caption while the light runs. */
   private labelBottom(): number {
     let bottom = this.view.height - this.insets.bottom;
@@ -1230,7 +1611,7 @@ export class StreetShow {
   /** A tag pops in as the light reaches its place. */
   private drawLabel(label: PlacedLabel<LabelItem>, now: number): void {
     const ctx = this.ctx;
-    const born = label.item.shop ? (this.bornAt(label.item.shop) ?? -Infinity) : -Infinity;
+    const born = label.item.shop ? (this.labelBorn(label.item.shop) ?? -Infinity) : -Infinity;
     const age = now - born;
     const fresh = Number.isFinite(born) && age < 420;
     const k = fresh ? 0.55 + 0.45 * easeOutBack(age / 360) : 1;
@@ -1297,6 +1678,12 @@ export class StreetShow {
     ctx.stroke();
     if (this.phase === "run") ctx.drawImage(glow(color, true), x - 12, yAt(head) - 12, 24, 24);
     ctx.globalCompositeOperation = "source-over";
+    if (this.walkAt) {
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.arc(x + 0.5, yAt(this.walkAt.s), 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   // ----- The page around the picture -----
@@ -1323,6 +1710,7 @@ export class StreetShow {
       this.fitName(street?.name ?? name);
     }
     this.renderConsole(now);
+    if (this.walk) this.renderWalkBar(now);
   }
 
   /** While the light runs: the place it reached last, large at the bottom, as in a film's lower third. */
@@ -1361,12 +1749,22 @@ export class StreetShow {
     this.captionEl.style.setProperty("--c", this.shopColor(shop));
     this.captionEl.style.bottom = `${this.bottomEl.classList.contains("away") ? 64 : this.insets.bottom + 6}px`;
     this.captionEl.replaceChildren(
-      h("div", { class: "show-caption-k", text: `${what} ${index + 1} / ${picks.length} · ${distanceText(shop.s).toUpperCase()} · ${kindWord(shop.kind).toUpperCase()}` }),
+      h("div", {
+        class: "show-caption-k",
+        text: `${what} ${index + 1} / ${picks.length} · ${distanceText(shop.s).toUpperCase()} · ${kindWord(shop.kind).toUpperCase()}${this.captionMark(shop)}`,
+      }),
       h("div", { class: "show-caption-name", text: shop.name }),
       line ? h("div", { class: "show-caption-line", text: line }) : "",
       h("div", { class: "show-caption-glint" }),
     );
     this.captionEl.classList.remove("hidden");
+  }
+
+  /** The lower third's word for a place Muse Spark picked. */
+  private captionMark(shop: ShopAhead): string {
+    const why = this.whyPicked(shop);
+    if (why) return ` · ✦ ${PICK_REASONS[why].toUpperCase()}`;
+    return this.bestPicked(shop) ? " · ✦ MUSE SPARK" : "";
   }
 
   /** The street's name as large as fits beside the buttons: 26 px, down to 18 px, then cut with an ellipsis. */
@@ -1408,7 +1806,15 @@ export class StreetShow {
     if (street.streetDistanceM > 30) rows.push({ id: "matched", key: "MATCHED", value: `${distanceText(street.streetDistanceM)} from your position`, state: "info" });
     rows.push({ id: "route", key: "ROUTE", value: `${distanceText(street.route.length)} ahead${street.route.length < 4990 ? " (the street ends)" : ""}`, state: tick(2) });
     rows.push({ id: "places", key: "PLACES", value: `${street.shops.length}${street.placesFound ? ` of ${street.placesFound}` : ""}`, state: tick(3) });
-    rows.push({ id: "landmarks", key: "LANDMARKS", value: `${this.landmarks.length}`, state: tick(4) });
+    const named =
+      this.picksState === "asking"
+        ? `Muse Spark choosing from ${this.pickCount} places${dots}`
+        : this.picksState === "done"
+          ? `${this.landmarks.length} · picked by Muse Spark${this.picksNote}`
+          : this.picksState === "failed"
+            ? `${this.landmarks.length} · by the map's ranking (Muse Spark ${this.picksNote})`
+            : `${this.landmarks.length}`;
+    rows.push({ id: "landmarks", key: "LANDMARKS", value: named, state: this.picksState === "asking" ? "wait" : tick(4) });
     rows.push({ id: "source", key: "SOURCE", value: street.source, state: "info" });
     (street.notes ?? []).forEach((note, i) => rows.push({ id: `note${i}`, key: "NOTE", value: note, state: "info" }));
     return rows;
@@ -1498,12 +1904,16 @@ export class StreetShow {
   private tour(group: Group): void {
     const street = this.street;
     if (!street) return;
+    // Muse Spark's best known of this kind first, then the map's ranking; the map's alone when the model knows none.
+    const rules = pickGroup(street.shops, group, street.route.length, street.name);
+    const byId = new Map(street.shops.map((s) => [s.id, s]));
+    const known = (this.aiBest[group.key] ?? []).map((id) => byId.get(id)).filter((s): s is ShopAhead => s !== undefined);
     const focus: Focus = {
       key: group.key,
       noun: group.noun,
       color: group.color,
       match: (shop) => group.categories.includes(shop.category),
-      picks: pickGroup(street.shops, group, street.route.length, street.name),
+      picks: known.length > 0 ? mergePicks(known, rules, 6, 3) : rules,
     };
     this.endQuest(false);
     this.beginRun(focus, this.clock());
@@ -1556,6 +1966,183 @@ export class StreetShow {
     this.renderChips();
   }
 
+  // ----- Walking the street -----
+
+  /** Once the first run is over: a street from the live camera follows the phone along it; one from the map alone offers a SIMULATED walk. */
+  private offerWalk(): void {
+    if (this.walk || !this.street) return;
+    if (this.options.live) this.startWalk("live");
+    else if (this.options.simulate) this.renderWalkBar(this.clock(), true);
+  }
+
+  private startWalk(mode: "live" | "simulated"): void {
+    if (!this.route || !this.local || this.disposed) return;
+    this.stopWalk(false);
+    const now = this.clock();
+    const walk: Walk = { mode, spot: null, shown: null, lastFrame: now, follow: true, camFrom: this.lastPose, camAt: now, offSince: null, watch: null, timer: 0, started: now };
+    if (mode === "live") {
+      if (!("geolocation" in navigator)) {
+        this.note("This browser gives no position: the dot cannot follow you.", 5000);
+        return;
+      }
+      walk.watch = navigator.geolocation.watchPosition(
+        (p) => this.onFix({ lat: p.coords.latitude, lon: p.coords.longitude, accuracyM: p.coords.accuracy, at: p.timestamp }),
+        (error) => {
+          if (error.code !== 1) return;
+          this.note("Location is off for this page, so the dot cannot follow you.", 6000);
+          this.stopWalk();
+        },
+        { enableHighAccuracy: true, maximumAge: 2000, timeout: 20_000 },
+      );
+    } else {
+      // A fix a second, as a phone gives them.
+      const tick = () => this.onFix(simulatedFix(this.route!, this.local!, this.clock() - walk.started));
+      walk.timer = window.setInterval(tick, 1000);
+      window.setTimeout(tick, 0);
+    }
+    this.walk = walk;
+    this.userPose = null;
+    this.glide = null;
+    this.fitButton.classList.add("hidden");
+    void this.keepAwake();
+    this.renderWalkBar(now);
+  }
+
+  /** Stops following the phone (or the SIMULATED walk); `offer`: the bar then offers to walk again. */
+  private stopWalk(offer = true): void {
+    const walk = this.walk;
+    if (!walk) return;
+    if (walk.watch !== null) navigator.geolocation.clearWatch(walk.watch);
+    window.clearInterval(walk.timer);
+    this.walk = null;
+    this.walkAt = null;
+    const wake = this.wake;
+    this.wake = null;
+    void wake?.release().catch(() => undefined);
+    if (!this.disposed) this.renderWalkBar(this.clock(), offer);
+  }
+
+  private onFix(fix: WalkFix): void {
+    const walk = this.walk;
+    if (!walk || !this.route || !this.local || this.disposed) return;
+    const prev = walk.spot;
+    const spot = walkStep(prev, this.route, this.local, fix);
+    if (!spot) return;
+    const now = this.clock();
+    walk.spot = spot;
+    walk.shown ??= { s: spot.s, offset: spot.offset };
+    walk.offSince = spot.onStreet ? null : (walk.offSince ?? now);
+    // A landmark passed: it lights up again, the phone buzzes, a line says which.
+    if (prev?.onStreet && spot.onStreet && !this.focus) {
+      for (const shop of passed(this.landmarks, prev.s, spot.s)) {
+        this.popAt.set(shop.id, now);
+        navigator.vibrate?.(14);
+        this.note(`Passing ${shop.name}, on your ${shop.side}`, 4000);
+      }
+    }
+  }
+
+  /** Where the dot is this frame: gliding towards the last fix, so it moves rather than jumps once a second. */
+  private walkShown(now: number): { s: number; offset: number } | null {
+    const walk = this.walk;
+    if (!walk?.spot || !walk.shown) return null;
+    const k = 1 - Math.exp(-Math.max(0, now - walk.lastFrame) / 450);
+    walk.lastFrame = now;
+    walk.shown = { s: walk.shown.s + k * (walk.spot.s - walk.shown.s), offset: walk.shown.offset + k * (walk.spot.offset - walk.shown.offset) };
+    return walk.shown;
+  }
+
+  /** The dot on the ground: on the street's line, a little to the side you are on. */
+  private walkPoint(at: { s: number; offset: number }): EN {
+    const { at: p, headingDeg } = pointAt(this.route!, at.s);
+    const h = (headingDeg * Math.PI) / 180;
+    const off = Math.max(-24, Math.min(24, at.offset));
+    return { x: p.x + Math.cos(h) * off, y: p.y - Math.sin(h) * off };
+  }
+
+  /** Back to following the dot, after a look around. */
+  private followAgain(): void {
+    if (!this.walk) return;
+    this.walk.follow = true;
+    this.walk.camFrom = this.lastPose;
+    this.walk.camAt = this.clock();
+    this.userPose = null;
+    this.glide = null;
+    this.fitButton.classList.add("hidden");
+  }
+
+  /**
+   * The bar above the buttons while walking: the next place, how far along
+   * the street you are and the next landmark. Before a walk, the offer to
+   * walk it (SIMULATED where no phone is on the street).
+   */
+  private renderWalkBar(now: number, offer = false): void {
+    const walk = this.walk;
+    const street = this.street;
+    let key = "";
+    let parts: (Node | null)[] = [];
+    if (street && walk) {
+      const spot = walk.spot;
+      const where = street.name ?? "the street";
+      const tag = walk.mode === "simulated" ? `SIMULATED ×${SIMULATED_SPEEDUP}` : "LIVE";
+      let title = "Finding your position…";
+      let line = `${tag} · the dot follows your phone along ${where}`;
+      if (spot && !spot.onStreet) {
+        title = `Off ${where}, ${distanceText(spot.awayM)} away`;
+        line = `${tag} · back on it, the dot picks you up again`;
+      } else if (spot) {
+        const next = nextPlace(street.shops, spot.s);
+        const mark = this.landmarks.find((l) => l.s > spot.s + 5);
+        title = next ? `Next: ${next.name} · ${distanceText(next.s - spot.s)} on the ${next.side}` : `The end of ${where} is near`;
+        line = `${tag} · ${(Math.max(0, spot.s) / 1000).toFixed(2)} km along${mark && mark !== next ? ` · ✦ ${mark.name} in ${distanceText(mark.s - spot.s)}` : ""}`;
+      }
+      const away = walk.offSince !== null && now - walk.offSince > OFF_STREET_MS && this.options.onNewStreet;
+      key = `walk|${title}|${line}|${walk.follow}|${away}`;
+      parts = [
+        h("div", { class: "show-quest-text" }, h("strong", {}, h("i", { class: `show-walk-dot${walk.mode === "simulated" ? " sim" : ""}` }), title), h("span", { text: line })),
+        away ? h("button", { class: "show-pill", onclick: () => this.options.onNewStreet?.() }, "New street here") : null,
+        walk.follow ? null : h("button", { class: "show-pill", onclick: () => this.followAgain() }, "Follow"),
+        h("button", { class: "show-pill ghost", "aria-label": "Stop following", onclick: () => this.stopWalk() }, "×"),
+      ];
+    } else if (street && offer && (this.options.live || this.options.simulate)) {
+      const live = this.options.live === true;
+      key = `offer|${live}`;
+      parts = [
+        h(
+          "div",
+          { class: "show-quest-text" },
+          h("strong", { text: live ? "Walk it" : "Walk it · simulated" }),
+          h("span", { text: live ? "Your dot moves along the street as you go" : "On the street, your dot follows your phone; here a SIMULATED walk" }),
+        ),
+        h("button", { class: "show-pill", onclick: () => this.startWalk(live ? "live" : "simulated") }, live ? "Start" : "Simulate"),
+      ];
+    }
+    if (key === this.walkBarKey) return;
+    this.walkBarKey = key;
+    this.walkBarEl.replaceChildren(...parts.filter((x): x is Node => x !== null));
+    this.walkBarEl.classList.toggle("hidden", key === "");
+    this.walkBarEl.classList.toggle("offer", key.startsWith("offer"));
+    this.measureInsets();
+  }
+
+  /** The screen stays on while walking: a phone in hand, glanced at now and then. */
+  private async keepAwake(): Promise<void> {
+    const lock = (navigator as Navigator & { wakeLock?: { request: (type: "screen") => Promise<{ release: () => Promise<void> }> } }).wakeLock;
+    if (!lock || !this.walk) return;
+    try {
+      this.wake = await lock.request("screen");
+    } catch {
+      // Not granted (low battery, an older browser): the screen sleeps as it would.
+    }
+  }
+
+  /** A wake lock ends when the page is hidden; back in view, while walking, it is asked for again. */
+  private onVisible = (): void => {
+    if (document.visibilityState !== "visible" || !this.walk) return;
+    this.wake = null;
+    void this.keepAwake();
+  };
+
   // ----- Exploring: pinch, drag, scroll -----
 
   /** After the run has begun: before it the street is not drawn yet. */
@@ -1570,6 +2157,7 @@ export class StreetShow {
   /** The visitor takes the camera: a running light first jumps to its end, so the whole street is there to explore. */
   private takeCamera(): void {
     if (this.phase === "run") this.skip();
+    if (this.walk) this.walk.follow = false;
     if (!this.userPose) this.userPose = { ...this.lastPose };
     this.glide = null;
     this.zoomHinted = true;
@@ -1688,6 +2276,7 @@ export class StreetShow {
     const closer = groundScale(from, this.view) < TAP_PPM ? clampPose({ ...from, distance: focalPx(this.view) / TAP_PPM }, limits) : from;
     const to = clampPose(poseKeeping(closer, this.view, spot, x, y) ?? closer, limits);
     this.userPose = this.userPose ?? { ...from };
+    if (this.walk) this.walk.follow = false;
     this.glide = { from, to, at: this.clock(), ms: 650 };
     this.zoomHinted = true;
     this.fitButton.classList.remove("hidden");
@@ -1697,6 +2286,11 @@ export class StreetShow {
   private hintZoom(tries: number): void {
     window.setTimeout(() => {
       if (this.disposed || this.zoomHinted || this.phase === "run") return;
+      // Not over the signs' flight: after it.
+      if (this.flight || this.flightPending) {
+        if (tries > 1) this.hintZoom(tries - 1);
+        return;
+      }
       if (!this.noteEl.classList.contains("hidden")) {
         if (tries > 1) this.hintZoom(tries - 1);
         return;
@@ -1756,7 +2350,12 @@ export class StreetShow {
     const parts: (Node | null)[] = [
       h("div", { class: "show-card-kicker" }, h("i"), `${group.label.toUpperCase()} · ${kindWord(shop.kind).toUpperCase()}`),
       h("h3", { text: shop.name }),
-      h("p", { class: "show-card-where", text: `${distanceText(shop.s)} ahead on the ${shop.side}` }),
+      h("p", { class: "show-card-where", text: this.walkAt && shop.s < this.walkAt.s - 5 ? `Behind you, on the ${shop.side}` : `${this.aheadText(shop)} ahead on the ${shop.side}` }),
+      this.pickWhy.has(shop.id) && this.landmarks.includes(shop)
+        ? h("p", { class: "show-card-quest", text: `✦ Landmark picked by Muse Spark: ${PICK_REASONS[this.pickWhy.get(shop.id)!].toLowerCase()}` })
+        : this.aiBest[group.key]?.includes(shop.id)
+          ? h("p", { class: "show-card-quest", text: `✦ Muse Spark knows it by name: among the street's best-known ${group.noun}` })
+          : null,
       stop ? h("p", { class: "show-card-quest", text: `✦ ${stop.line}` }) : null,
       this.spotted.has(shop.id) ? h("p", { class: "show-card-quest", text: "✓ Muse Spark read this sign in your photo" }) : null,
       this.signCuts.has(shop.id)
@@ -1863,6 +2462,57 @@ export class StreetShow {
   }
 
   /**
+   * Asks Muse Spark Open which of the street's places to name: the
+   * landmarks and the best known of each kind. The first run waits a few
+   * seconds for the answer; a later answer names the places from the next
+   * view on, and none at all leaves the map's ranking, as before.
+   */
+  private async askPicks(places: PickPlace[]): Promise<void> {
+    this.picksState = "asking";
+    const asked = performance.now();
+    try {
+      const res = await fetch("/api/landmarks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ places, street: this.street?.name?.slice(0, 80), near: this.options.origin }),
+        signal: this.abort.signal,
+      });
+      const body = (await res.json().catch(() => ({}))) as { picks?: Picks; cached?: boolean };
+      if (this.disposed) return;
+      if (!res.ok || !body.picks) {
+        this.picksState = "failed";
+        this.picksNote = res.status === 503 ? "off" : "did not answer";
+        return;
+      }
+      this.applyPicks(body.picks, body.cached ? "asked before" : `${((performance.now() - asked) / 1000).toFixed(1)} s`);
+      this.options.onPicks?.(body.picks);
+    } catch {
+      if (this.disposed) return;
+      this.picksState = "failed";
+      this.picksNote = "did not answer";
+    }
+  }
+
+  /** Muse Spark's picks take over: at once while the readings are up, after the first run when it is under way. */
+  private applyPicks(picks: Picks, note: string): void {
+    const street = this.street;
+    if (!street) return;
+    const landmarks = landmarksFrom(picks, street.shops, this.ruleLandmarks, street.route.length);
+    const why = new Map(picks.landmarks.map((l) => [l.id, l.why] as const));
+    this.pickWhy = new Map(landmarks.filter((s) => why.has(s.id)).map((s) => [s.id, why.get(s.id)!] as const));
+    this.aiBest = picks.best;
+    this.picksState = "done";
+    this.picksAt = this.clock();
+    this.picksNote = note ? ` · ${note}` : "";
+    if (this.phase === "computing" || this.phase === "failed") this.landmarks = landmarks;
+    else if (this.phase === "run" && this.run?.first) this.pendingLandmarks = landmarks;
+    else {
+      this.landmarks = landmarks;
+      if (!this.focus && this.phase !== "run") this.popPicks(this.clock() + 200);
+    }
+  }
+
+  /**
    * Asks Muse Spark Open which of the nearest mapped places it can read in
    * the photo. When SAM 3.1 found signs, the photo goes with them boxed and
    * numbered, and a place read in a box gets that sign, cut out along SAM's
@@ -1893,24 +2543,26 @@ export class StreetShow {
       const photo = this.options.photo;
       const full = photo.width / model.canvas.width;
       const pictures: { src: string; alt: string }[] = [];
+      const flying: FlightSign[] = [];
       const signs = signsForPlaces(read, boxes);
       for (const x of read) {
         const box = signs.get(x.id);
         if (!box) continue;
         // From the full photo for a sharp picture, unless that would be a large one to make while the light runs.
         const sharp = (box.x2 - box.x1) * full <= CUT_MAX_PX;
-        const src = (sharp ? cutSign(photo, box, full) : cutSign(model.canvas, box)).toDataURL("image/png");
+        const picture = sharp ? cutSign(photo, box, full) : cutSign(model.canvas, box);
+        const src = picture.toDataURL("image/png");
         this.signCuts.set(x.id, src);
         if (pictures.length < 4) pictures.push({ src, alt: `The sign of ${byId.get(x.id)!.name}` });
+        if (flying.length < 5) flying.push({ shop: byId.get(x.id)!, picture, box, landedAt: null });
       }
       if (names.length > 0) {
-        this.note(
-          `✓ Muse Spark read ${names.length === 1 ? "a sign" : `${names.length} signs`} in your photo: ${names.join(", ")}. Right street, right way.`,
-          9000,
-          true,
+        this.signNews({
+          text: `✓ Muse Spark read ${names.length === 1 ? "a sign" : `${names.length} signs`} in your photo: ${names.join(", ")}. Right street, right way.`,
           pictures,
-          pictures.length > 0 ? "outlined by SAM 3.1" : "",
-        );
+          caption: pictures.length > 0 ? "outlined by SAM 3.1" : "",
+          signs: flying.sort((a, b) => a.shop.s - b.shop.s),
+        });
       } else if (body.spotted.view === "across") this.note("Muse Spark sees building fronts, not a street running away from you. Turn to look along the street and try again.", 9000);
     } catch {
       // The sign check is a bonus: without it the street still shows.

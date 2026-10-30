@@ -4,9 +4,9 @@ import { distanceM, FAMOUS_STREETS, nearestStreet, orderForZone } from "../src/s
 describe("famous streets to fly down", () => {
   it("lead with the visitor's own part of the world", () => {
     expect(orderForZone(FAMOUS_STREETS, "America/Los_Angeles").slice(0, 3).map((s) => s.short)).toEqual([
-      "University Avenue, Palo Alto",
       "Market Street, San Francisco",
       "Hollywood Boulevard, Los Angeles",
+      "University Avenue, Palo Alto",
     ]);
     // Same continent next: a visitor in Chicago sees the American streets before Seoul's.
     const chicago = orderForZone(FAMOUS_STREETS, "America/Chicago").map((s) => s.short);

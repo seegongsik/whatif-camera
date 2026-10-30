@@ -46,7 +46,7 @@ export default defineConfig({
   ],
   server: { host: true },
   // three.js is most of the bundle (about 180 kB gzipped).
-  build: { chunkSizeWarningLimit: 800 },
+  build: { chunkSizeWarningLimit: 850 },
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],

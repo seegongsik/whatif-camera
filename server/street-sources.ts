@@ -32,6 +32,14 @@ const OVERPASS_TIMEOUT_MS = 20_000;
  * is the fallback rather than the first try.
  */
 const OVERPASS_BUDGET_MS = 20_000;
+/**
+ * When the tiles answered but had no named street beside the camera (a
+ * campus, a park, the middle of a block), Overpass only gets this long: it
+ * rarely knows a street the tiles lack, and someone is waiting for the way
+ * out to the nearest busy street (21 s at Meta's headquarters on
+ * 2026-10-30, all of it spent waiting for Overpass).
+ */
+const OVERPASS_SHORT_BUDGET_MS = 5_000;
 /** The most places one street keeps: a 5 km street in Seoul has well over a thousand, more signs than a phone should draw. */
 export const MAX_PLACES = 400;
 export const OVERTURE_ATTRIBUTION = "Places © Overture Maps Foundation (CDLA-Permissive-2.0)";
@@ -188,7 +196,7 @@ export async function lookupStreet(origin: LatLon, headingDeg: number, deps: Dep
     }
   }
   if (!base) {
-    const deadline = Date.now() + OVERPASS_BUDGET_MS;
+    const deadline = Date.now() + (tilesFoundNoStreet ? OVERPASS_SHORT_BUDGET_MS : OVERPASS_BUDGET_MS);
     for (const url of overpassUrls(env)) {
       try {
         const data = await fromOverpass(url, origin, headingDeg, nameHint, deps, deadline, !useOverture);
