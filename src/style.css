@@ -233,6 +233,20 @@ main.camera video {
   padding: 10px 12px;
 }
 
+/* Under the advice: a demo street or a photo, so a refused location is not a dead end. */
+.camera-ways {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.camera-ways button {
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
 /* Opened inside a chat or social app's browser. */
 .in-app {
   margin: 16px 0;

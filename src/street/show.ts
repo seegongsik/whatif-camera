@@ -12,7 +12,7 @@ import type { CaptureMeta } from "../capture/types.js";
 import { localFrame, normDeg, type EN, type LocalFrame } from "../geo/enu.js";
 import { h, svg } from "../ui/dom.js";
 import type { ShopAhead } from "./ahead.js";
-import { landmarksFrom, mergePicks, pickCandidates, PICK_MIN_PLACES, PICK_REASONS, type PickPlace, type PickReason, type Picks } from "./picks.js";
+import { knownIds, landmarksFrom, mergePicks, pickCandidates, PICK_MIN_PLACES, PICK_REASONS, roughPosition, type PickPlace, type PickReason, type Picks } from "./picks.js";
 import type { Quest } from "./quest.js";
 import { QuestSheet } from "./quest-ui.js";
 import { pointAt, type Route } from "./route.js";
@@ -136,6 +136,8 @@ export type StreetShowOptions = {
   onNewStreet?: () => void;
   /** The heading for a demo street: its name as the world knows it ("Chuo-dori · Ginza" for the map's 第一京浜). */
   title?: string;
+  /** A demo street's id: Muse Spark's picks along it come from the CDN, asked for as the show opens rather than once the street is in. */
+  demo?: string;
 };
 
 /** What the light is showing: every place (null), one kind of place, or a quest's stops. */
@@ -283,6 +285,11 @@ export class StreetShow {
   private pickWhy = new Map<string, PickReason>();
   /** Muse Spark's best-known places of each chip's kind. */
   private aiBest: Picks["best"] = {};
+  /** Every place Muse Spark named, kept or not: a quest asks it to prefer these. */
+  private modelNamed = new Set<string>();
+  /** A demo street's picks, asked for alongside the street (null: the page asks once the street is in). */
+  private demoPicks: Promise<Response | null> | null = null;
+  private demoAsked = 0;
   /** Picks that came in while the first run was naming the map's: they take over once it ends. */
   private pendingLandmarks: ShopAhead[] | null = null;
   /** When each of Muse Spark's late picks pops up over the whole street (show time). */
@@ -410,6 +417,11 @@ export class StreetShow {
     this.onResize();
     // SAM 3.1 looks for the signs while the street is looked up; nothing waits for it.
     if (this.options.photo && this.options.sam !== false) this.samDone = this.findSigns();
+    // A demo street's picks stand in the CDN like the street: both are asked for at once.
+    if (this.options.demo) {
+      this.demoAsked = performance.now();
+      this.demoPicks = fetch(`/api/landmarks?demo=${encodeURIComponent(this.options.demo)}`, { signal: this.abort.signal }).catch(() => null);
+    }
     const tick = () => {
       this.raf = requestAnimationFrame(tick);
       this.frame(this.clock());
@@ -439,7 +451,11 @@ export class StreetShow {
     const credits = street.attribution.replace(/ \((ODbL|CDLA-Permissive-2\.0)\)/g, "");
     this.creditEl.textContent = street.synthetic && !credits.includes("SYNTHETIC") ? `${credits} · SYNTHETIC` : credits;
     this.kickerEl.replaceChildren("WHAT'S AHEAD", street.synthetic ? h("span", { class: "badge", text: "SYNTHETIC" }) : "");
-    this.questSheet = new QuestSheet(street.shops, (quest, stops) => this.startQuest(quest, stops));
+    this.questSheet = new QuestSheet(
+      street.shops,
+      (quest, stops) => this.startQuest(quest, stops),
+      () => ({ street: street.name?.slice(0, 80), near: roughPosition(this.options.origin), known: this.modelNamed }),
+    );
     this.questSheet.element.classList.add("show-sheet");
     this.element.append(this.questSheet.element);
     this.skipEl.classList.remove("hidden");
@@ -1301,6 +1317,7 @@ export class StreetShow {
       priority,
       name: `${this.spotted.has(shop.id) ? "✓ " : ""}${shop.name}`,
       detail: this.tagDetail(shop),
+      short: this.tagShort(shop),
       item: { shop, color, number },
       font,
     });
@@ -1419,6 +1436,11 @@ export class StreetShow {
     const why = this.whyPicked(shop);
     if (why) return `✦ ${PICK_REASONS[why]} · ${this.aheadText(shop)}`.toUpperCase();
     return `${this.bestPicked(shop) ? "✦ " : ""}${this.aheadText(shop)} · ${kindWord(shop.kind)}`.toUpperCase();
+  }
+
+  /** What a narrow tag keeps: how far, and the mark of Muse Spark's pick. */
+  private tagShort(shop: ShopAhead): string {
+    return `${this.whyPicked(shop) || this.bestPicked(shop) ? "✦ " : ""}${this.aheadText(shop)}`.toUpperCase();
   }
 
   /**
@@ -1774,7 +1796,8 @@ export class StreetShow {
     this.captionEl.replaceChildren(
       h("div", {
         class: "show-caption-k",
-        text: `${what} ${index + 1} / ${picks.length} · ${walkText(shop.s).toUpperCase()} · ${kindWord(shop.kind).toUpperCase()}${this.captionMark(shop)}`,
+        // Muse Spark's mark before the kind: a narrow screen cuts the end of the line.
+        text: `${what} ${index + 1} / ${picks.length}${this.captionMark(shop)} · ${walkText(shop.s).toUpperCase()} · ${kindWord(shop.kind).toUpperCase()}`,
       }),
       h("div", { class: "show-caption-name", text: shop.name }),
       line ? h("div", { class: "show-caption-line", text: line }) : "",
@@ -2514,22 +2537,28 @@ export class StreetShow {
    */
   private async askPicks(places: PickPlace[]): Promise<void> {
     this.picksState = "asking";
-    const asked = performance.now();
+    let asked = this.demoAsked;
     try {
-      const res = await fetch("/api/landmarks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ places, street: this.street?.name?.slice(0, 80), near: this.options.origin }),
-        signal: this.abort.signal,
-      });
-      const body = (await res.json().catch(() => ({}))) as { picks?: Picks; cached?: boolean };
+      let res = this.demoPicks ? await this.demoPicks : null;
+      if (!res) {
+        asked = performance.now();
+        res = await fetch("/api/landmarks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ places, street: this.street?.name?.slice(0, 80), near: roughPosition(this.options.origin) }),
+          signal: this.abort.signal,
+        });
+      }
+      const body = (await res.json().catch(() => ({}))) as { picks?: Picks; cached?: boolean; latencyMs?: number };
       if (this.disposed) return;
       if (!res.ok || !body.picks) {
         this.picksState = "failed";
         this.picksNote = res.status === 503 ? "off" : "did not answer";
         return;
       }
-      this.applyPicks(body.picks, body.cached ? "asked before" : `${((performance.now() - asked) / 1000).toFixed(1)} s`);
+      // An answer kept by the server or the CDN comes back quicker than the model took to give it.
+      const took = performance.now() - asked;
+      this.applyPicks(body.picks, body.cached || took + 100 < (body.latencyMs ?? 0) ? "asked before" : `${(took / 1000).toFixed(1)} s`);
       this.options.onPicks?.(body.picks);
     } catch {
       if (this.disposed) return;
@@ -2546,6 +2575,7 @@ export class StreetShow {
     const why = new Map(picks.landmarks.map((l) => [l.id, l.why] as const));
     this.pickWhy = new Map(landmarks.filter((s) => why.has(s.id)).map((s) => [s.id, why.get(s.id)!] as const));
     this.aiBest = picks.best;
+    this.modelNamed = knownIds(picks);
     this.picksState = "done";
     this.picksAt = this.clock();
     this.picksNote = note ? ` · ${note}` : "";

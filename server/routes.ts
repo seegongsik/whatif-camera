@@ -11,7 +11,9 @@ import { lookupFootprints, UpstreamError } from "./footprint-sources.js";
 import { SparkError } from "./spark.js";
 import { lookupStreet } from "./street-sources.js";
 import { picksWithSpark, questWithSpark, signsWithSpark } from "./street-spark.js";
-import { isGroupKey, PICK_MAX_PLACES, type PickPlace } from "../src/street/picks.js";
+import { FAMOUS_STREETS } from "../src/street/famous.js";
+import { isGroupKey, pickCandidates, PICK_DEMO_MAX_PLACES, PICK_MAX_PLACES, PICK_MIN_PLACES, roughPosition, type PickPlace } from "../src/street/picks.js";
+import { showReach } from "../src/street/show-plan.js";
 import { isSignPrompt, SamError, SIGN_PROMPT, SIGN_PROMPTS, signsWithSam } from "./sam.js";
 import { SHOP_CATEGORIES, type ShopCategory } from "../src/street/osm.js";
 import { isQuestTheme, type QuestPlace } from "../src/street/quest.js";
@@ -55,6 +57,13 @@ export async function handleFootprints(request: Request, deps: Deps = {}): Promi
   }
 }
 
+/**
+ * How long a street stands in the CDN: a day, then the stale one while a
+ * fresh one is looked up (a week), so a street someone opened before (a demo
+ * street) opens at once. A new deployment starts with an empty cache.
+ */
+const STREET_CACHE = "public, max-age=900, s-maxage=86400, stale-while-revalidate=604800";
+
 export async function handleStreet(request: Request, deps: Deps = {}): Promise<Response> {
   if (request.method !== "GET") return json({ error: "use GET" }, 405);
   const url = new URL(request.url);
@@ -68,7 +77,7 @@ export async function handleStreet(request: Request, deps: Deps = {}): Promise<R
   }
   try {
     const street = await lookupStreet({ lat, lon }, ((heading % 360) + 360) % 360, deps, name?.trim());
-    return json(street, 200, { "Cache-Control": "public, max-age=900, s-maxage=3600" });
+    return json(street, 200, { "Cache-Control": STREET_CACHE });
   } catch (error) {
     if (error instanceof UpstreamError) return json({ error: error.message }, error.status);
     return json({ error: `street lookup failed: ${error instanceof Error ? error.message : String(error)}` }, 502);
@@ -107,6 +116,7 @@ function placeFrom(value: unknown): (SpotPlace & Partial<QuestPlace>) | null {
   if (hours) place.openingHours = hours;
   const cuisine = text(v.cuisine, 60);
   if (cuisine) place.cuisine = cuisine;
+  if (v.known === true) place.known = true;
   return place;
 }
 
@@ -136,7 +146,19 @@ function sparkFailure(error: unknown, what: string): Response {
   return json({ error: `${what} failed: ${error instanceof Error ? error.message : String(error)}` }, 502);
 }
 
-/** POST {theme, places, localTime?}: a quest along the street from Muse Spark Open. */
+/** The street's name and position as the page sends them, both optional; a message when either is out of shape. */
+function whereFrom(body: Record<string, unknown>): { street?: string; near?: { lat: number; lon: number } } | string {
+  const street = body.street === undefined ? undefined : text(body.street, 80);
+  if (body.street !== undefined && !street) return "street must be a name of 1 to 80 characters";
+  if (body.near === undefined) return { street };
+  const near = body.near as { lat?: unknown; lon?: unknown } | null;
+  if (typeof near !== "object" || near === null || typeof near.lat !== "number" || typeof near.lon !== "number" || !(Math.abs(near.lat) <= 85) || !(Math.abs(near.lon) <= 180)) {
+    return "near must be {lat, lon}";
+  }
+  return { street, near: { lat: near.lat, lon: near.lon } };
+}
+
+/** POST {theme, places, localTime?, street?, near?}: a quest along the street from Muse Spark Open. */
 export async function handleQuest(request: Request, deps: Deps = {}): Promise<Response> {
   if (request.method !== "POST") return json({ error: "use POST" }, 405);
   const body = await jsonBody(request);
@@ -145,10 +167,12 @@ export async function handleQuest(request: Request, deps: Deps = {}): Promise<Re
   const places = placesFrom(body.places, 80);
   if (!places || places.some((p) => !p.category || !p.kind)) return json({ error: "places must be 1 to 80 distinct places with id, name, category, kind, side and distanceM" }, 400);
   const localTime = typeof body.localTime === "string" && /^(Mo|Tu|We|Th|Fr|Sa|Su) [0-2]\d:[0-5]\d$/.test(body.localTime) ? body.localTime : undefined;
+  const where = whereFrom(body);
+  if (typeof where === "string") return json({ error: where }, 400);
   const gate = sparkGate(deps, "picks the stops itself");
   if (gate) return gate;
   try {
-    return json(await questWithSpark(places as QuestPlace[], body.theme, { localTime }, deps));
+    return json(await questWithSpark(places as QuestPlace[], body.theme, { localTime, ...where }, deps));
   } catch (error) {
     return sparkFailure(error, "quest");
   }
@@ -166,9 +190,15 @@ function pickPlaceFrom(value: unknown): PickPlace | null {
   return { id: v.id, name, kind, group: v.group, side: v.side, distanceM: Math.round(v.distanceM) };
 }
 
-/** POST {places, street?, near?}: the places the show names, picked by Muse Spark Open from the street's places (list numbers and a reason word only). */
+/**
+ * POST {places, street?, near?}: the places the show names, picked by Muse
+ * Spark Open from the street's places (list numbers and a reason word only).
+ * GET ?demo=<id>: the same for a demo street, looked up here, so the answer
+ * stands in the CDN like the street itself for everyone who opens it.
+ */
 export async function handleLandmarks(request: Request, deps: Deps = {}): Promise<Response> {
-  if (request.method !== "POST") return json({ error: "use POST" }, 405);
+  if (request.method === "GET") return demoLandmarks(new URL(request.url).searchParams.get("demo"), deps);
+  if (request.method !== "POST") return json({ error: "use POST, or GET with a demo street" }, 405);
   const body = await jsonBody(request);
   if (!body) return json({ error: "body must be a JSON object" }, 400);
   const list = Array.isArray(body.places) && body.places.length > 0 && body.places.length <= PICK_MAX_PLACES ? body.places.map(pickPlaceFrom) : null;
@@ -176,16 +206,34 @@ export async function handleLandmarks(request: Request, deps: Deps = {}): Promis
   if (!places || new Set(places.map((p) => p.id)).size !== places.length) {
     return json({ error: `places must be 1 to ${PICK_MAX_PLACES} distinct places with id, name, kind, group, side and distanceM` }, 400);
   }
-  const street = body.street === undefined ? undefined : text(body.street, 80);
-  if (body.street !== undefined && !street) return json({ error: "street must be a name of 1 to 80 characters" }, 400);
-  const near = body.near as { lat?: unknown; lon?: unknown } | undefined;
-  const nearOk = near !== undefined && typeof near === "object" && near !== null && typeof near.lat === "number" && typeof near.lon === "number" && Math.abs(near.lat) <= 85 && Math.abs(near.lon) <= 180;
-  if (near !== undefined && !nearOk) return json({ error: "near must be {lat, lon}" }, 400);
+  const where = whereFrom(body);
+  if (typeof where === "string") return json({ error: where }, 400);
   const gate = sparkGate(deps, "names the places by the map's own ranking");
   if (gate) return gate;
   try {
-    return json(await picksWithSpark(places, { street, near: nearOk ? { lat: near.lat as number, lon: near.lon as number } : undefined }, deps));
+    return json(await picksWithSpark(places, where, deps));
   } catch (error) {
+    return sparkFailure(error, "picks");
+  }
+}
+
+/** The street's own cache, for the model's picks along a demo street. */
+const DEMO_PICKS_CACHE = STREET_CACHE;
+
+async function demoLandmarks(id: string | null, deps: Deps): Promise<Response> {
+  const demo = FAMOUS_STREETS.find((s) => s.id === id);
+  if (!demo) return json({ error: `demo must be one of ${FAMOUS_STREETS.map((s) => s.id).join(", ")}` }, 400);
+  const gate = sparkGate(deps, "names the places by the map's own ranking");
+  if (gate) return gate;
+  try {
+    // The street the page gets for the same demo, so the ids answer for its places.
+    const street = await lookupStreet({ lat: demo.lat, lon: demo.lon }, demo.headingDeg, deps, demo.street);
+    const places = pickCandidates(street.shops, showReach(street.shops, street.route.length), street.name, PICK_DEMO_MAX_PLACES);
+    if (places.length < PICK_MIN_PLACES) return json({ error: "the street has too few places to pick from" }, 404);
+    const answer = await picksWithSpark(places, { street: street.name?.slice(0, 80), near: roughPosition(demo) }, deps);
+    return json(answer, 200, { "Cache-Control": DEMO_PICKS_CACHE });
+  } catch (error) {
+    if (error instanceof UpstreamError) return json({ error: error.message }, error.status);
     return sparkFailure(error, "picks");
   }
 }

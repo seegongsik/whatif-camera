@@ -7,7 +7,7 @@
  */
 import { LiveCamera } from "../capture/camera.js";
 import { readExif } from "../capture/exif.js";
-import { APPROXIMATE_FIX_M, approximateHelp, cameraHelp, inAppBrowser, LOCATION_WAIT_MS, locationHelp, waitingHelp } from "../capture/help.js";
+import { APPROXIMATE_FIX_M, approximateHelp, askingHelp, cameraHelp, inAppBrowser, LOCATION_WAIT_MS, locationHelp, waitingHelp } from "../capture/help.js";
 import { Sensors, screenAngle } from "../capture/sensors.js";
 import { ASSUMED_FOV_LONG_DEG, gpsSigmaM, type CaptureMeta } from "../capture/types.js";
 import { intrinsicsFrom35mm, horizontalFovDeg, longSideFovDeg } from "../camera/pose.js";
@@ -105,6 +105,12 @@ export class App {
       const nums = at?.slice(0, 3).map(Number);
       if (at && nums && nums.length === 3 && nums.every(Number.isFinite)) {
         await this.streetFor({ lat: nums[0], lon: nums[1], headingDeg: nums[2], street: at.slice(3).join(",").trim() || undefined });
+        return;
+      }
+      // A demo street by its id (?street=fifth-avenue), as the README links them.
+      const demo = FAMOUS_STREETS.find((s) => s.id === params.get("street"));
+      if (demo && this.mode === "street") {
+        await this.streetFor(demo);
         return;
       }
       const preset = params.get("preset");
@@ -258,7 +264,6 @@ export class App {
         h("p", { class: "muted small", text: "Streets © OpenStreetMap contributors (ODbL); places © Overture Maps Foundation (CDLA-Permissive-2.0). Places change; the map may be out of date." }),
         // The made-up street is for a try without a photo or a location, so it sits down here, not with the ways in.
         h("p", { class: "muted small" }, h("a", { href: "?demo=street" }, "Synthetic street"), ": an invented street with invented places, to try the show without a photo."),
-        h("p", { class: "muted small" }, h("a", { href: "?mode=building" }, "Building what-if (the earlier prototype)")),
       ),
     );
   }
@@ -279,7 +284,7 @@ export class App {
   }
 
   /** `live`: the photo came from the camera just now, so walking the street follows the phone. */
-  private async streetFor(at: { lat: number; lon: number; headingDeg: number; street?: string; name?: string }, photo?: HTMLCanvasElement, capture?: CaptureMeta, live = false): Promise<void> {
+  private async streetFor(at: { lat: number; lon: number; headingDeg: number; street?: string; name?: string; id?: string }, photo?: HTMLCanvasElement, capture?: CaptureMeta, live = false): Promise<void> {
     // A street from a photo is kept (until the next photo), with Muse Spark's picks once they are in.
     let kept: StreetAhead | null = null;
     // The show starts at once: its radar runs while the street is looked up.
@@ -289,8 +294,9 @@ export class App {
       simulate: !photo,
       onPicks: (picks) => kept && savePicks(kept, picks),
       onNewStreet: () => void this.openCamera(),
-      // A demo street goes by the name the world knows it by.
+      // A demo street goes by the name the world knows it by, and its picks come from the CDN.
       title: photo ? undefined : at.name,
+      demo: photo ? undefined : at.id,
     });
     const asked = performance.now();
     // Shots from the phone go in the field log, to look into later.
@@ -422,23 +428,84 @@ export class App {
   private async openCamera(): Promise<void> {
     const sensors = new Sensors();
     const camera = new LiveCamera();
+    // The browser may ask now: say so, rather than leave a page that seems to do nothing.
+    let cancelled = false;
+    this.screen(
+      h(
+        "main",
+        { class: "page center" },
+        h("div", { class: "spinner" }),
+        h("p", { text: "Opening the camera…" }),
+        h("p", { class: "muted small", text: "If your browser asks for the camera and your location, choose Allow: the camera sees the street, the location says which street it is." }),
+        h(
+          "button",
+          {
+            class: "ghost",
+            onclick: () => {
+              cancelled = true;
+              this.home();
+            },
+          },
+          "Back",
+        ),
+      ),
+    );
     try {
       await sensors.start();
       await camera.start();
     } catch (error) {
       sensors.stop();
       camera.stop();
-      this.home(cameraHelp(error, navigator.userAgent));
+      if (!cancelled) this.home(cameraHelp(error, navigator.userAgent));
+      return;
+    }
+    if (cancelled) {
+      sensors.stop();
+      camera.stop();
       return;
     }
     this.sensors = sensors;
     this.camera = camera;
+    // Whether the browser has still to ask for location: then the page says what to answer.
+    let asking = false;
+    void navigator.permissions
+      ?.query({ name: "geolocation" })
+      .then((status) => {
+        asking = status.state === "prompt";
+        status.onchange = () => (asking = status.state === "prompt");
+      })
+      .catch(() => undefined);
     const fovParam = Number(params.get("fov"));
     const fovGiven = Number.isFinite(fovParam) && fovParam >= 20 && fovParam <= 120;
     const fov = fovGiven ? fovParam : ASSUMED_FOV_LONG_DEG;
     const hud = h("div", { class: "hud" });
     // What to change when location is refused or only a rough area.
     const help = h("p", { class: "camera-help hidden" });
+    // And a way on meanwhile, so a refusal is never a dead end: a demo street, or a photo with its own location.
+    const demo = orderForZone(FAMOUS_STREETS, timeZone())[0];
+    const photoInput = h("input", { type: "file", accept: "image/jpeg,image/*", class: "hidden" });
+    photoInput.addEventListener("change", () => {
+      const file = photoInput.files?.[0];
+      if (!file) return;
+      this.stopLive();
+      void this.fromUpload(file);
+    });
+    const ways = h(
+      "div",
+      { class: "camera-ways hidden" },
+      h(
+        "button",
+        {
+          onclick: () => {
+            this.stopLive();
+            void this.streetFor(demo);
+          },
+        },
+        `Fly down ${demo.short} ›`,
+      ),
+      h("button", { onclick: () => photoInput.click() }, "Use a photo"),
+      photoInput,
+    );
     const level = h("div", { class: "level" });
     const shoot = h("button", { class: "shutter", "aria-label": "Take the photo" });
     const back = h("button", { class: "ghost on-dark", onclick: () => this.home() }, "Back");
@@ -460,16 +527,20 @@ export class App {
       if (screenAngle() !== 0) parts.push("hold the phone upright");
       hud.textContent = parts.join("  ·  ");
       const area = p !== null && street && p.accuracyM > APPROXIMATE_FIX_M;
+      const stuck = !p && (sensors.positionErrorCode !== null || performance.now() - opened > LOCATION_WAIT_MS);
       const advice =
         !p && sensors.positionErrorCode
           ? locationHelp(sensors.positionErrorCode, navigator.userAgent)
-          : !p && performance.now() - opened > LOCATION_WAIT_MS
+          : stuck
             ? waitingHelp(navigator.userAgent)
             : p && area
               ? approximateHelp(p.accuracyM, navigator.userAgent)
-              : "";
+              : !p && asking
+                ? askingHelp(navigator.userAgent)
+                : "";
       if (help.textContent !== advice) help.textContent = advice;
       help.classList.toggle("hidden", !advice);
+      ways.classList.toggle("hidden", !(stuck || area));
       shoot.toggleAttribute("disabled", !p || area);
     };
     sensors.onChange = update;
@@ -508,7 +579,7 @@ export class App {
       else void this.withFootprints(photo, capture, "Live capture");
     });
     const note = this.mode === "street" ? h("p", { class: "camera-note", text: PHOTO_NOTE }) : null;
-    this.screen(h("main", { class: "camera" }, camera.video, level, h("div", { class: "camera-top" }, hud, help), note, h("div", { class: "camera-bar" }, back, shoot)));
+    this.screen(h("main", { class: "camera" }, camera.video, level, h("div", { class: "camera-top" }, hud, help, ways), note, h("div", { class: "camera-bar" }, back, shoot)));
     update();
   }
 
@@ -556,8 +627,8 @@ export class App {
             fLat.input.value = p.coords.latitude.toFixed(6);
             fLon.input.value = p.coords.longitude.toFixed(6);
           },
-          (e) => (note.textContent = e.message),
-          { enableHighAccuracy: true },
+          (e) => (note.textContent = locationHelp(e.code, navigator.userAgent)),
+          { enableHighAccuracy: true, timeout: 20_000 },
         ),
     }, "Use my current location");
     const go = h("button", { class: "primary" }, this.mode === "street" ? "Find the street" : "Find the building");

@@ -13,7 +13,8 @@
     "preview": "vite preview --host",
     "test": "vitest run",
     "lint": "eslint .",
-    "check:api": "node scripts/check-api.mjs"
+    "check:api": "node scripts/check-api.mjs",
+    "check:demo": "DEMO_LIVE=${DEMO_LIVE:-1} vitest run tests/demo-live.test.ts"
   },
   "dependencies": {
     "@meta-sam/parser": "0.1.0",

@@ -123,6 +123,15 @@ describe("landmarks route", () => {
     expect((await handleLandmarks(request({ places }), { env: {} })).status).toBe(503);
   });
 
+  it("answers a demo street by GET, for the CDN to keep, and only a demo street", async () => {
+    expect((await handleLandmarks(new Request("http://x/api/landmarks?demo=nowhere"), { env: {} })).status).toBe(400);
+    const off = await handleLandmarks(new Request("http://x/api/landmarks?demo=fifth-avenue"), { env: {} });
+    expect(off.status).toBe(503);
+    // A failure is never kept by the CDN.
+    expect(off.headers.get("Cache-Control")).toBe("no-store");
+    expect((await handleLandmarks(new Request("http://x/api/landmarks", { method: "PUT" }), { env: {} })).status).toBe(405);
+  });
+
   it("answers with ids from the list, and the same street again from the cache", async () => {
     const calls = { n: 0 };
     const fetchImpl = modelReply('{"landmarks":[{"n":2,"why":"historic"},{"n":40,"why":"iconic"}],"best":{}}', calls);

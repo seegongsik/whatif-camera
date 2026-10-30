@@ -1,10 +1,10 @@
 /**
  * Muse Spark Open on the street: the places the show names (picked by list
  * number from the mapped places, with a reason from a menu), a quest along
- * it (stops chosen by id from the mapped places, told by kind only) and a
- * check of which mapped places it can read in the photo. Every answer is
- * checked before the page sees it (src/street/picks.ts, src/street/quest.ts,
- * src/street/spotted.ts).
+ * it (stops chosen by id from the mapped places, the famous ones first, with
+ * a line each that may name nothing) and a check of which mapped places it
+ * can read in the photo. Every answer is checked before the page sees it
+ * (src/street/picks.ts, src/street/quest.ts, src/street/spotted.ts).
  */
 import { parsePicks, type PickPlace, type Picks } from "../src/street/picks.js";
 import { parseQuest, QUEST_THEMES, type Quest, type QuestPlace, type QuestTheme } from "../src/street/quest.js";
@@ -17,21 +17,31 @@ type Deps = { env?: EnvMap; fetchImpl?: typeof fetch; now?: () => number };
 export const QUEST_SYSTEM_PROMPT = [
   "You plan a short walking quest along one real street for someone standing at its start.",
   "Choose two to four stops, only from the list of places, by their id, in walking order (nearest first), and keep the walk short unless the theme needs more.",
+  "Use what you know about the places by name: when they fit the theme, prefer places known well beyond their block (those marked known among them), and never pick a place for a theme it does not fit.",
   "Reply with exactly one JSON object and nothing else: {\"title\": \"...\", \"stops\": [{\"id\": \"...\", \"line\": \"...\"}]}.",
-  "The title is at most six words. Each line is at most fourteen words and says what to do or try there, from the kind of place and its tags only.",
-  "Text contains no digits and no names of businesses, brands, places or people: the app shows each stop's name and distance itself.",
-  "Do not invent menus, prices, ratings, opening times or facts about a place. When hours are listed, prefer places open at the given local time.",
+  "The title is at most six words. Each line is at most fourteen words and says what to do or try there.",
+  "Write in plain English. Text contains no digits and no names of businesses, brands, products, places or people, not even the stop's own: the app shows each stop's name and distance above its line.",
+  "Do not state menus, prices, ratings, opening times, exhibits or other facts that may be out of date; suggest what to do in general terms. When hours are listed, prefer places open at the given local time.",
 ].join(" ");
 
-export function buildQuestMessages(places: QuestPlace[], theme: QuestTheme, context: { localTime?: string } = {}): ChatMessage[] {
-  // Kinds, sides and distances only: the model never sees a name, so it cannot repeat one.
+type Where = { street?: string; near?: { lat: number; lon: number } };
+
+/** The street's name and where it is, to two decimals (about a kilometre): enough to tell which city, no more. */
+function whereLine(context: Where): string {
+  return [context.street ? `Street: ${context.street}` : "Street: unnamed", context.near ? `near ${context.near.lat.toFixed(2)}, ${context.near.lon.toFixed(2)}` : ""].filter(Boolean).join(", ");
+}
+
+export function buildQuestMessages(places: QuestPlace[], theme: QuestTheme, context: Where & { localTime?: string } = {}): ChatMessage[] {
+  // Names, so the model can choose the places it knows; what it writes is checked for them (src/street/quest.ts).
   const listed = places.map((p) => {
-    const item: Record<string, unknown> = { id: p.id, kind: p.kind, side: p.side, metresAhead: p.distanceM };
+    const item: Record<string, unknown> = { id: p.id, name: p.name, kind: p.kind, side: p.side, metresAhead: p.distanceM };
+    if (p.known) item.known = true;
     if (p.cuisine) item.cuisine = p.cuisine;
     if (p.openingHours) item.hours = p.openingHours;
     return item;
   });
   const text = [
+    `${whereLine(context)}.`,
     `Theme: ${QUEST_THEMES[theme].label} (${QUEST_THEMES[theme].hint}).`,
     context.localTime ? `Local time: ${context.localTime}.` : "Local time: unknown.",
     "Places along the street ahead:",
@@ -90,16 +100,9 @@ export const PICKS_SYSTEM_PROMPT = [
 ].join(" ");
 
 /** The list the model reads: numbers instead of ids (shorter, and nothing to copy wrong), and no text of its own goes back to the page. */
-export function buildPicksMessages(places: PickPlace[], context: { street?: string; near?: { lat: number; lon: number } } = {}): ChatMessage[] {
-  const where = [
-    context.street ? `Street: ${context.street}` : "Street: unnamed",
-    // Two decimals, about a kilometre: enough to tell which city, no more.
-    context.near ? `near ${context.near.lat.toFixed(2)}, ${context.near.lon.toFixed(2)}` : "",
-  ]
-    .filter(Boolean)
-    .join(", ");
+export function buildPicksMessages(places: PickPlace[], context: Where = {}): ChatMessage[] {
   const rows = places.map((p, i) => `${i + 1}|${p.name.replace(/[|\n]/g, "/")}|${p.kind}|${p.group}|${p.distanceM}|${p.side}`);
-  const text = [`${where}.`, `Places ahead (n|name|kind|group|metres ahead|side):`, ...rows].join("\n");
+  const text = [`${whereLine(context)}.`, `Places ahead (n|name|kind|group|metres ahead|side):`, ...rows].join("\n");
   return [
     { role: "system", content: PICKS_SYSTEM_PROMPT },
     { role: "user", content: text },
@@ -117,7 +120,7 @@ export function resetPicksCacheForTests(): void {
 
 export async function picksWithSpark(
   places: PickPlace[],
-  context: { street?: string; near?: { lat: number; lon: number } },
+  context: Where,
   deps: Deps = {},
 ): Promise<{ picks: Picks; latencyMs: number; model: string; cached: boolean }> {
   const now = (deps.now ?? Date.now)();
@@ -161,7 +164,7 @@ function answerObject(reply: ChatReply, firstKey: string): unknown {
 export async function questWithSpark(
   places: QuestPlace[],
   theme: QuestTheme,
-  context: { localTime?: string },
+  context: Where & { localTime?: string },
   deps: Deps = {},
 ): Promise<{ quest: Quest; latencyMs: number; model: string }> {
   const reply = await sparkChat(buildQuestMessages(places, theme, context), { temperature: 0.8 }, deps);

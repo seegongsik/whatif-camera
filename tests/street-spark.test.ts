@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { bannedTerms, cleanLine, localQuest, parseQuest, questPlaces, type QuestPlace } from "../src/street/quest.js";
+import { bannedTerms, cleanLine, localQuest, nameCheck, parseQuest, questPlaces, type QuestPlace } from "../src/street/quest.js";
 import { parseSpotted, spotPlaces } from "../src/street/spotted.js";
 import { syntheticStreet } from "../src/street/synthetic.js";
 import { buildQuestMessages, buildSignsMessages, SIGNS_BOXED_SYSTEM_PROMPT, SIGNS_SYSTEM_PROMPT } from "../server/street-spark.js";
@@ -27,22 +27,50 @@ describe("quest places and checks (SYNTHETIC street)", () => {
     expect(byKind("cafe").openingHours).toBe("Mo-Su 07:00-22:00");
   });
 
-  it("never shows the model a place's name", () => {
-    const [, user] = buildQuestMessages(places, "coffee", { localTime: "Sa 10:30" });
+  it("puts the places Muse Spark already named first, past the cap of their kind and the 2.5 km, in walking order", () => {
+    const cafes = Array.from({ length: 12 }, (_, i) => ({ ...street.shops[0], id: `c${i}`, name: `Cafe ${i}`, category: "cafe" as const, s: 100 + i * 100 }));
+    const museum = { ...street.shops[0], id: "far", name: "Far Museum", category: "fun" as const, s: 3700 };
+    const list = questPlaces([...cafes, museum, { ...museum, id: "far2", s: 3900 }], 2500, new Set(["c11", "far"]));
+    expect(list.map((p) => p.id)).toEqual(["c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c11", "far"]);
+    expect(list.filter((p) => p.known).map((p) => p.id)).toEqual(["c11", "far"]);
+  });
+
+  it("shows the model the names, the street and the places it already named, and asks for no names back", () => {
+    const listed = questPlaces(street.shops, 2500, new Set([byKind("books").id]));
+    const [system, user] = buildQuestMessages(listed, "coffee", { localTime: "Sa 10:30", street: "Main Street", near: { lat: 37.49851, lon: 127.02744 } });
     const text = String(user.content);
+    expect(text).toContain("Street: Main Street, near 37.50, 127.03.");
     expect(text).toContain("Local time: Sa 10:30");
-    expect(text).toContain('"kind":"cafe"');
-    for (const p of places) expect(text).not.toContain(p.name);
+    expect(text).toContain(`"name":"${byKind("cafe").name}"`);
+    expect(text).toContain(`"id":"${byKind("books").id}","name":"${byKind("books").name}","kind":"books","side":"${byKind("books").side}","metresAhead":${byKind("books").distanceM},"known":true`);
+    expect(text).not.toContain("37.4985");
+    expect(system.content).toContain("not even the stop's own");
   });
 
   it("bans business names and their first two words, not single common words", () => {
     expect(bannedTerms(["Night Owl Mart", "Starbucks", "Coffee", "Glow Lab"])).toEqual(["night owl mart", "night owl", "starbucks", "glow lab"]);
-    const banned = bannedTerms(["Night Owl Mart", "Starbucks"]);
-    expect(cleanLine("Let your skin glow a little", banned, "fallback")).toBe("Let your skin glow a little");
-    expect(cleanLine("Grab a snack at Night Owl", banned, "fallback")).toBe("fallback");
-    expect(cleanLine("A latte like Starbucks makes", banned, "fallback")).toBe("fallback");
-    expect(cleanLine("Try 2 pastries", banned, "fallback")).toBe("fallback");
-    expect(cleanLine(42, banned, "fallback")).toBe("fallback");
+    const check = nameCheck(["Night Owl Mart", "Starbucks"]);
+    expect(cleanLine("Let your skin glow a little", check, "fallback")).toBe("Let your skin glow a little");
+    expect(cleanLine("Grab a snack at Night Owl", check, "fallback")).toBe("fallback");
+    expect(cleanLine("A latte like Starbucks makes", check, "fallback")).toBe("fallback");
+    expect(cleanLine("Try 2 pastries", check, "fallback")).toBe("fallback");
+    expect(cleanLine(42, check, "fallback")).toBe("fallback");
+  });
+
+  it("turns down a name the model brings, another script, and a line that opens with a listed name", () => {
+    const check = nameCheck(["Tiffany & Co.", "The Metropolitan Museum of Art", "Glow Lab"]);
+    expect(cleanLine("Peek into Tiffany's windows.", check, "fallback")).toBe("fallback");
+    expect(cleanLine("Tiffany's windows glitter.", check, "fallback")).toBe("fallback");
+    expect(cleanLine("Test-drive the newest iPhone.", check, "fallback")).toBe("fallback");
+    expect(cleanLine("Wander the halls. Then look for Picasso.", check, "fallback")).toBe("fallback");
+    expect(cleanLine("銀座でひと休み", check, "fallback")).toBe("fallback");
+    expect(cleanLine("Wander the halls until the rain stops.", check, "fallback")).toBe("Wander the halls until the rain stops.");
+    expect(cleanLine("Try the Italian-style pastries. I'd start here.", check, "fallback")).toBe("Try the Italian-style pastries. I'd start here.");
+    expect(cleanLine("Let your skin glow a little", check, "fallback")).toBe("Let your skin glow a little");
+    // A title may be in title case, but holds no word of a listed name.
+    expect(cleanLine("Breakfast at Tiffany's", check, "fallback", 60, true)).toBe("fallback");
+    expect(cleanLine("Metropolitan Rain Plan", check, "fallback", 60, true)).toBe("fallback");
+    expect(cleanLine("Rainy Day Art Hop", check, "fallback", 60, true)).toBe("Rainy Day Art Hop");
   });
 
   it("checks the model's quest: listed ids once, walking order, clean text", () => {
@@ -92,6 +120,8 @@ describe("quest route (SYNTHETIC)", () => {
     expect((await handleQuest(request({ theme: "coffee", places: [] }), { env: {} })).status).toBe(400);
     const bad: (QuestPlace | Record<string, unknown>)[] = [...places.slice(0, 3), { ...places[3], distanceM: -5 }];
     expect((await handleQuest(request({ theme: "coffee", places: bad }), { env: {} })).status).toBe(400);
+    expect((await handleQuest(request({ theme: "coffee", places, near: { lat: 99, lon: 0 } }), { env: {} })).status).toBe(400);
+    expect((await handleQuest(request({ theme: "coffee", places, street: "" }), { env: {} })).status).toBe(400);
     const res = await handleQuest(request({ theme: "coffee", places }), { env: {} });
     expect(res.status).toBe(503);
     expect((await res.json()).error).toMatch(/picks the stops itself/);
@@ -107,11 +137,19 @@ describe("quest route (SYNTHETIC)", () => {
         choices: [{ finish_reason: "stop", message: { content: `{"title":"Warm start","stops":[{"id":"${bakery.id}","line":"Something fresh from the oven."},{"id":"${cafe.id}","line":"Settle in with a cup."}]}` } }],
       });
     }) as typeof fetch;
-    const res = await handleQuest(request({ theme: "coffee", places, localTime: "Mo 09:15" }), { env: { BASETEN_API_KEY: "k" }, fetchImpl });
+    const sentPlaces = places.map((p) => (p.id === cafe.id ? { ...p, known: true } : p));
+    const res = await handleQuest(request({ theme: "coffee", places: sentPlaces, localTime: "Mo 09:15", street: "Main Street", near: { lat: 37.5, lon: 127 } }), {
+      env: { BASETEN_API_KEY: "k" },
+      fetchImpl,
+    });
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(sent!.model).toBe("meta-models/muse-spark-open-1026");
-    expect(JSON.stringify(sent!.messages)).not.toContain("Morning Cup");
+    // The model reads the names (and which it named before); the page shows them from the map.
+    const asked = String((sent!.messages as { content: string }[])[1].content);
+    expect(asked).toContain("Morning Cup");
+    expect(asked).toContain("Street: Main Street, near 37.50, 127.00.");
+    expect(asked).toContain(`"name":"${cafe.name}","kind":"cafe","side":"${cafe.side}","metresAhead":${cafe.distanceM},"known":true`);
     expect(body.quest.title).toBe("Warm start");
     // Put in walking order: the bakery comes first.
     expect(bakery.distanceM).toBeLessThan(cafe.distanceM);
