@@ -76,7 +76,7 @@ const MIN_COMPUTE_MS = 2400;
 const PHOTO_SCAN_MS = 1000;
 const PHOTO_FOLD_MS = 800;
 /** The first run waits this long at most, after the street is in, for Muse Spark's picks; then the map's ranking names the places. */
-const PICK_WAIT_MS = 5000;
+const PICK_WAIT_MS = 6000;
 /** Muse Spark's line stays in the readings this long before the light sets off. */
 const PICK_HOLD_MS = 600;
 /** Picks that come in after the first run pop up over the whole street one after another, this far apart. */
@@ -132,6 +132,8 @@ export type StreetShowOptions = {
   resume?: boolean;
   /** Off the street for a while: a new photo where you stand. */
   onNewStreet?: () => void;
+  /** The heading for a demo street: its name as the world knows it ("Chuo-dori · Ginza" for the map's 第一京浜). */
+  title?: string;
 };
 
 /** What the light is showing: every place (null), one kind of place, or a quest's stops. */
@@ -669,12 +671,12 @@ export class StreetShow {
       const t = now - flight.at;
       const out = flightLength(flight.news.signs.length) - FLIGHT.outMs;
       if (t < out) return lerpPose(flight.from, flight.pose, easeInOut(t / FLIGHT.glideMs));
-      const back = this.walk?.follow && this.walkAt ? followPose(this.route!, this.walkAt.s, WALK_FOLLOW) : this.overview;
+      const back = this.walk?.follow && this.walkAt ? this.walkPose(this.walkAt) : this.overview;
       return lerpPose(flight.pose, back, easeInOut((t - out) / FLIGHT.outMs));
     }
-    // Walking: the camera keeps the dot near the bottom, the street ahead above it.
+    // Walking: the camera keeps the dot low on the screen, above the buttons, the street ahead above it.
     if (this.walk?.follow && this.walkAt && (this.phase === "settle" || this.phase === "overview")) {
-      const target = followPose(this.route!, this.walkAt.s, WALK_FOLLOW);
+      const target = this.walkPose(this.walkAt);
       const k = easeInOut((now - this.walk.camAt) / 1200);
       return k >= 1 ? target : lerpPose(this.walk.camFrom, target, k);
     }
@@ -1693,7 +1695,7 @@ export class StreetShow {
     // The street's name types itself in once it is known.
     let name = "Finding your street";
     if (this.phase === "failed") name = "No street found";
-    else if (street) name = (street.name ?? "Unnamed street").slice(0, Math.max(0, Math.floor((now - this.loadedAt) / 55)));
+    else if (street) name = this.title().slice(0, Math.max(0, Math.floor((now - this.loadedAt) / 55)));
     let stats = "";
     if (street && this.run) {
       const run = this.run;
@@ -1707,10 +1709,15 @@ export class StreetShow {
       this.hudKey = key;
       this.nameEl.textContent = name || "\u00a0";
       this.statsEl.textContent = stats;
-      this.fitName(street?.name ?? name);
+      this.fitName(street ? this.title() : name);
     }
     this.renderConsole(now);
     if (this.walk) this.renderWalkBar(now);
+  }
+
+  /** The street's name at the top: a demo street's own title, else the map's name. */
+  private title(): string {
+    return this.options.title ?? this.street?.name ?? "Unnamed street";
   }
 
   /** While the light runs: the place it reached last, large at the bottom, as in a film's lower third. */
@@ -2050,6 +2057,19 @@ export class StreetShow {
     walk.lastFrame = now;
     walk.shown = { s: walk.shown.s + k * (walk.spot.s - walk.shown.s), offset: walk.shown.offset + k * (walk.spot.offset - walk.shown.offset) };
     return walk.shown;
+  }
+
+  /**
+   * The camera while walking: behind and above you, moved so your dot
+   * stands a little above the bar, the buttons and any open card (on a
+   * short screen they cover the lower third, where the follow camera alone
+   * would put it), with the street ahead above it.
+   */
+  private walkPose(at: { s: number; offset: number }): Pose {
+    const pose = followPose(this.route!, at.s, WALK_FOLLOW);
+    const sx = this.view.centerX ?? this.view.width / 2;
+    const sy = Math.max(this.insets.top + 140, this.labelBottom() - 64);
+    return poseKeeping(pose, this.view, this.walkPoint(at), sx, sy) ?? pose;
   }
 
   /** The dot on the ground: on the street's line, a little to the side you are on. */

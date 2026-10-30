@@ -279,7 +279,7 @@ export class App {
   }
 
   /** `live`: the photo came from the camera just now, so walking the street follows the phone. */
-  private async streetFor(at: { lat: number; lon: number; headingDeg: number; street?: string }, photo?: HTMLCanvasElement, capture?: CaptureMeta, live = false): Promise<void> {
+  private async streetFor(at: { lat: number; lon: number; headingDeg: number; street?: string; name?: string }, photo?: HTMLCanvasElement, capture?: CaptureMeta, live = false): Promise<void> {
     // A street from a photo is kept (until the next photo), with Muse Spark's picks once they are in.
     let kept: StreetAhead | null = null;
     // The show starts at once: its radar runs while the street is looked up.
@@ -289,6 +289,8 @@ export class App {
       simulate: !photo,
       onPicks: (picks) => kept && savePicks(kept, picks),
       onNewStreet: () => void this.openCamera(),
+      // A demo street goes by the name the world knows it by.
+      title: photo ? undefined : at.name,
     });
     const asked = performance.now();
     // Shots from the phone go in the field log, to look into later.

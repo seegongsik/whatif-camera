@@ -59,6 +59,8 @@ describe("the model's picks", () => {
   it("shows the model names and numbers, never ids, and the place only to the kilometre", () => {
     const [system, user] = buildPicksMessages(places, { street: "Main Street", near: { lat: 37.49851, lon: 127.02744 } });
     expect(system.content).toContain("most recognisable first");
+    // A famous brand's everyday branch (a coffee chain on every corner) is not what a street is known for.
+    expect(system.content).toContain("A chain's everyday branch is never a landmark");
     const text = String(user.content);
     expect(text).toContain("Street: Main Street, near 37.50, 127.03.");
     expect(text).toContain("1|City Museum|museum|fun|100|left");

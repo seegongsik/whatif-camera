@@ -24,14 +24,22 @@ export type FamousStreet = {
   zones: string[];
 };
 
+/**
+ * Streets the world knows by name, in the order a visitor who has not been
+ * there would look for them; each checked on the deployment (2026-10-30)
+ * for its street, its places and what Muse Spark picks along it. Seoul's
+ * is kept last everywhere (no time zone moves it up).
+ */
 export const FAMOUS_STREETS: FamousStreet[] = [
-  { label: "Gangnam-daero, Seoul (north from Gangnam Station)", short: "Gangnam-daero, Seoul", name: "Gangnam-daero", city: "Seoul", lat: 37.4985, lon: 127.0274, headingDeg: 343, street: "강남대로", zones: ["Asia/Seoul"] },
-  { label: "Market Street, San Francisco (south-west from Powell Street)", short: "Market Street, San Francisco", name: "Market Street", city: "San Francisco", lat: 37.785, lon: -122.4069, headingDeg: 232, street: "Market Street", zones: ["America/Los_Angeles"] },
-  { label: "Hollywood Boulevard, Los Angeles (east from Highland Avenue)", short: "Hollywood Boulevard, Los Angeles", name: "Hollywood Boulevard", city: "Los Angeles", lat: 34.1016, lon: -118.3387, headingDeg: 90, street: "Hollywood Boulevard", zones: ["America/Los_Angeles"] },
-  { label: "University Avenue, Palo Alto (north-east from Emerson Street)", short: "University Avenue, Palo Alto", name: "University Avenue", city: "Palo Alto", lat: 37.4459, lon: -122.1617, headingDeg: 52, street: "University Avenue", zones: ["America/Los_Angeles"] },
   { label: "Fifth Avenue, New York (north from 42nd Street)", short: "Fifth Avenue, New York", name: "Fifth Avenue", city: "New York", lat: 40.7536, lon: -73.9807, headingDeg: 29, street: "5th Avenue", zones: ["America/New_York"] },
+  { label: "Hollywood Boulevard, Los Angeles (east from La Brea Avenue)", short: "Hollywood Boulevard, Los Angeles", name: "Hollywood Boulevard", city: "Los Angeles", lat: 34.1016, lon: -118.3443, headingDeg: 90, street: "Hollywood Boulevard", zones: ["America/Los_Angeles"] },
+  { label: "Market Street, San Francisco (south-west from Powell Street)", short: "Market Street, San Francisco", name: "Market Street", city: "San Francisco", lat: 37.785, lon: -122.4069, headingDeg: 232, street: "Market Street", zones: ["America/Los_Angeles"] },
   { label: "7th Avenue, New York (south from Times Square)", short: "7th Avenue, New York", name: "7th Avenue · Times Square", city: "New York", lat: 40.759, lon: -73.9848, headingDeg: 209, street: "7th Avenue", zones: ["America/New_York"] },
-  { label: "Robson Street, Vancouver (north-west from Burrard)", short: "Robson Street, Vancouver", name: "Robson Street", city: "Vancouver", lat: 49.2838, lon: -123.1233, headingDeg: 315, street: "Robson Street", zones: ["America/Vancouver"] },
+  { label: "Michigan Avenue, Chicago (north from the Art Institute)", short: "Michigan Avenue, Chicago", name: "Michigan Avenue", city: "Chicago", lat: 41.8797, lon: -87.6241, headingDeg: 0, street: "South Michigan Avenue", zones: ["America/Chicago"] },
+  { label: "Oxford Street, London (west from Tottenham Court Road)", short: "Oxford Street, London", name: "Oxford Street", city: "London", lat: 51.5162, lon: -0.1305, headingDeg: 275, street: "Oxford Street", zones: ["Europe/London"] },
+  { label: "Champs-Élysées, Paris (down from the Arc de Triomphe)", short: "Champs-Élysées, Paris", name: "Champs-Élysées", city: "Paris", lat: 48.8737, lon: 2.2965, headingDeg: 117, street: "Avenue des Champs-Élysées", zones: ["Europe/Paris"] },
+  { label: "Chuo-dori, Ginza, Tokyo (north-east from Ginza 8-chome)", short: "Ginza, Tokyo", name: "Chuo-dori · Ginza", city: "Tokyo", lat: 35.666, lon: 139.7603, headingDeg: 35, street: "第一京浜", zones: ["Asia/Tokyo"] },
+  { label: "Gangnam-daero, Seoul (north from Gangnam Station)", short: "Gangnam-daero, Seoul", name: "Gangnam-daero", city: "Seoul", lat: 37.4985, lon: 127.0274, headingDeg: 343, street: "강남대로", zones: [] },
 ];
 
 /** The visitor's own zone first, then the rest of their continent (the zone's first part), then the others; each group in list order. */

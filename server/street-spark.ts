@@ -82,8 +82,9 @@ export function buildSignsMessages(places: SpotPlace[], imageDataUrl: string, bo
 export const PICKS_SYSTEM_PROMPT = [
   "You choose which places a visitor would want named on a map of one street, from a numbered list of the places along it.",
   "Use what you know about these places: famous sights, historic places, flagship stores, museums, theatres and venues known by name, restaurants, cafés and bars known well beyond their block.",
-  "landmarks: up to ten places a visitor is most likely to know or look for by name, most recognisable first. Give each a reason: iconic (known well beyond the street), historic (long-standing or historic), flagship (a brand's main or best-known store), culture (a museum, gallery, theatre or venue known by name) or well_known.",
-  "best: for each group in the list, up to four places of that group that are best known by name, most recognisable first.",
+  "landmarks: up to ten places a visitor is most likely to know or look for by name, most recognisable first. Give each a reason: iconic (known well beyond the street in its own right), historic (long-standing or historic), flagship (a brand's main or best-known store, such as its store on this very street), culture (a museum, gallery, theatre or venue known by name) or well_known (one place known by name in its own right).",
+  "A chain's everyday branch is never a landmark, however famous the brand: not a coffee chain, fast-food chain, supermarket, pharmacy, bank, or a fashion chain's ordinary store. Pick a chain's place only when that very place is famous (a flagship, a landmark store).",
+  "best: for each group in the list, up to four places of that group that are best known by name in their own right, most recognisable first; a chain's everyday branch only when nothing else in that group is known.",
   "Pick only places you recognise; it is fine to give few or none. Never pick a place for its kind alone, and skip names that look misplaced for this street.",
   'Reply with exactly one JSON object and nothing else: {"landmarks": [{"n": 1, "why": "iconic"}], "best": {"food": [2, 5], "cafe": []}}. Use only numbers from the list.',
 ].join(" ");
