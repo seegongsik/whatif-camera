@@ -1,5 +1,18 @@
 # PROGRESS
 
+## 2026-10-30 (KST) · 4일 차 ③: PR #20 머지 뒤 실서버 (D36)
+- PR #20 머지(민우 「머지해줘」). 실서버 데모 거리 9곳(새 프롬프트, 캐시 없는 첫 호출):
+  - 5번가: Louis Vuitton(flagship) · Cartier Fifth Avenue Mansion · Tiffany · Apple Fifth Avenue · The Met · 구겐하임. 763곳 모두(첫 1 km 551곳).
+  - 할리우드: TCL 차이니즈 극장(데이터 이름 「graumanschinese.org」, D36에서 바로잡음) · Ripley's · Musso & Frank(historic) · Pantages · Fonda Theatre.
+  - Market St: New Balance 플래그십 · SFMOMA · Market Street Theatre and Loft 역사 지구 · Orpheum · Zuni Cafe · Cafe Du Nord.
+  - 7번가: Palace Theatre · Minskoff Theatre · Legoland Discovery Center · Midtown Comics · Museum at FIT · Color Factory(체인 없어짐). Stonewall Inn·Village Vanguard는 800곳에는 있지만 모델 후보 200곳에 못 듦.
+  - 미시간 애비뉴: Art Institute(정원) · Garrett Popcorn · Water Tower · Drake Hotel. 옥스퍼드: Samsung·Nike·Disney 플래그십 · Selfridges. 샹젤리제: Dior · Louis Vuitton · Ladurée. 긴자: Imperial Hotel · GINZA SIX · Ginza Place · Artizon Museum · 시네스위치 긴자 · Shiseido Gallery. 강남대로: 삼성 강남 플래그십 · CGV 강남 · Apple(체인 커피 없어짐).
+  - 시간: 길 3.9~9.5초(응답 146~279 KB, gzip 전), Muse Spark 4.5~7.1초(새 프롬프트로 전보다 약 1초 느림). 6초를 넘는 곳은 첫 달리기를 규칙으로 하고 끝난 뒤 떠오름. 같은 인스턴스에서 다시 열면 캐시로 바로.
+  - 남기는 장소: 7번가 800/1,280(첫 1 km 452), 옥스퍼드 800/1,084(581), 긴자 800/2,133(600), 샹젤리제 624/624(596).
+  - Palo Alto 「Stanford Mall」이 빠진 것 확인.
+- 고침(D36): 데이터 이름 오류도 `src/street/errata.ts`에서 바로잡음(이름+위치, 「graumanschinese.org」 → 「TCL Chinese Theatre」). `npm test` 195개 통과.
+- 확인 필요: 심사 전 데모 거리 9곳을 한 번씩 열어 인스턴스 캐시 데우기(같은 인스턴스일 때만 효과), Stonewall Inn이 후보에 들게 할지(후보를 늘리면 더 느려짐).
+
 ## 2026-10-30 (KST) · 4일 차 ②: 머지 뒤 실서버, 세계의 데모 거리 (D33, D34)
 - PR #19 머지(민우 「머지해줘」). 실서버 확인:
   - Meta 본사 좌표의 「길 없음」 21.4초 → 5.7초.
