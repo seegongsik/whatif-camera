@@ -1,5 +1,13 @@
 # PROGRESS
 
+## 2026-10-30 (KST) · 4일 차 ⑦: 배포 주소 whats-ahead.vercel.app (D43)
+- 이름을 바꾼 레포 확인: git과 GitHub API가 seegongsik/whats-ahead로 됨. PR #23 마지막 커밋에 Vercel 「Deployment has completed」, 실서버 번들에 PR #23 코드(비 오는 날 「museums and galleries」)가 들어 있음. 이름이 바뀐 레포에서도 Vercel 배포가 됨(⑥의 확인 필요 하나 해결).
+- 민우가 Vercel Domains에 whats-ahead.vercel.app을 Production으로 추가, 옛 whatif-camera.vercel.app도 Production으로 둠. 두 주소 모두 페이지·API 200, CDN 캐시는 주소마다 따로(D43).
+- 고친 것(D43): 새 주소를 index.html(og:url·og:image)·package.json·공유 카드·README·CLAUDE.md·테스트 예시에. 미리보기 그림은 주소 줄만 다시 그림. `check:demo`가 두 주소를 모두 열고 길마다 시간과 HIT/MISS를 보여 줌.
+- `npm run check:demo`(PR #23 배포, 두 주소): 18개 통과. 채운 뒤 두 주소 9곳 모두 HIT, 길 0.03~0.24초, 랜드마크 0.03~0.2초.
+- 확인: `npm test` 146개 통과(실호출 11개 건너뜀), lint·build·check:api 통과.
+- 할 일(민우): 저장소 About의 설명(아직 브레인스토밍 때 문구)과 웹사이트를 새 주소로. 확인 필요: 제출 양식에 적힌 주소. 이 PR 머지 뒤 `npm run check:demo` 한 번(새 배포는 캐시가 비어 있음).
+
 ## 2026-10-30 (KST) · 4일 차 ⑥: PR #22 머지 뒤 실서버, 레포 이름 whats-ahead (D42)
 - PR #22 머지(민우 「#22 우선 머지해줘」). 배포가 바뀐 뒤 `npm run check:demo`:
   - 9곳 통과. 두 번째 열기부터 CDN에서 옴(HIT): 길 0.04~0.4초, 랜드마크 약 0.04초. 처음 묻는 Muse Spark는 3.0~6.3초(후보 400곳, 200곳 때와 비슷).

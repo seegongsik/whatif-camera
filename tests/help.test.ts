@@ -13,7 +13,7 @@ const chromeMac = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/5
 const chromeWindows = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
 const edgeWindows = `${chromeWindows} Edg/141.0.0.0`;
 const safariMac = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15";
-const page = "https://whatif-camera.vercel.app/?street=37.5,127.03,72";
+const page = "https://whats-ahead.vercel.app/?street=37.5,127.03,72";
 
 const named = (name: string) => Object.assign(new Error("refused"), { name });
 

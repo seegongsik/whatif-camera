@@ -2,7 +2,7 @@
 
 **One photo of a street, and the next 5 km of it on your phone: every place the map knows at its distance and on its side, the ones a visitor would know named by Meta's Muse Spark, and the signs in your photo found by SAM 3.1 and flown back onto the map.** An entry for the Meta Global AI Developer Hackathon (October to November 2026), built on Meta's models and Overture Maps.
 
-**Try it** at https://whatif-camera.vercel.app (Chrome, Edge or Safari; on a phone on a street, Open camera). Away from a street, fly down one from the map alone: [Fifth Avenue](https://whatif-camera.vercel.app/?street=fifth-avenue) · [Hollywood Boulevard](https://whatif-camera.vercel.app/?street=hollywood-boulevard) · [Market Street](https://whatif-camera.vercel.app/?street=market-street) · [7th Avenue](https://whatif-camera.vercel.app/?street=7th-avenue) · [Michigan Avenue](https://whatif-camera.vercel.app/?street=michigan-avenue) · [Oxford Street](https://whatif-camera.vercel.app/?street=oxford-street) · [Champs-Élysées](https://whatif-camera.vercel.app/?street=champs-elysees) · [Ginza](https://whatif-camera.vercel.app/?street=ginza) · [Gangnam-daero](https://whatif-camera.vercel.app/?street=gangnam-daero).
+**Try it** at https://whats-ahead.vercel.app (Chrome, Edge or Safari; on a phone on a street, Open camera). Away from a street, fly down one from the map alone: [Fifth Avenue](https://whats-ahead.vercel.app/?street=fifth-avenue) · [Hollywood Boulevard](https://whats-ahead.vercel.app/?street=hollywood-boulevard) · [Market Street](https://whats-ahead.vercel.app/?street=market-street) · [7th Avenue](https://whats-ahead.vercel.app/?street=7th-avenue) · [Michigan Avenue](https://whats-ahead.vercel.app/?street=michigan-avenue) · [Oxford Street](https://whats-ahead.vercel.app/?street=oxford-street) · [Champs-Élysées](https://whats-ahead.vercel.app/?street=champs-elysees) · [Ginza](https://whats-ahead.vercel.app/?street=ginza) · [Gangnam-daero](https://whats-ahead.vercel.app/?street=gangnam-daero).
 
 <p>
 <img src="docs/screenshots/2026-10-30-fifth-avenue-readings.jpg" width="250" alt="The readings while Fifth Avenue is looked up: GPS, heading, street, 763 places, 5.0 km, landmarks: 7 picked by Muse Spark in 5.9 s">
@@ -38,7 +38,7 @@ flowchart LR
   quest -->|"ids and checked lines"| show
 ```
 
-The project began as What If Camera, a building prototype that became What's Ahead on 2026-10-28 and was removed on 2026-10-30 (`DECISIONS.md` D11, D41); the deployment keeps the old name (whatif-camera.vercel.app). Operator: Minwoo Kwon (`seegongsik`). License: all rights reserved (see `LICENSE`); third-party packages and data keep their own licenses, listed below.
+The project began as What If Camera, a building prototype that became What's Ahead on 2026-10-28 and was removed on 2026-10-30 (`DECISIONS.md` D11, D41); the old address, whatif-camera.vercel.app, still opens the same deployment (D43). Operator: Minwoo Kwon (`seegongsik`). License: all rights reserved (see `LICENSE`); third-party packages and data keep their own licenses, listed below.
 
 Places are what OpenStreetMap and Overture Maps have mapped, shown with their sources; places change. Walking times and fame are estimates and judgements, shown as such (≈, ✦).
 
