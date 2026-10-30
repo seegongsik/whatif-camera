@@ -21,7 +21,7 @@
 | **Data** | Streets from OpenStreetMap vector tiles, followed 5 km through junctions; places from **Overture Maps** (co-founded by Meta, most places from Meta's place data), read straight from its public GeoParquet release by HTTP range requests. No database; the server keeps nothing. |
 | **Guardrails** | The models choose, the map tells: every name, distance and side on screen comes from the map. Muse Spark answers in list numbers, ids and words from fixed menus; its only free text, a quest's title and lines, is checked for digits, names and other scripts before the page sees it. Without the models everything still runs (the map's ranking, the app's own quest) and the page says which decided. |
 | **Measured** | On the deployment, 2026-10-30: a street in 3.9 to 9.5 s when first asked, 0.2 to 0.5 s from the CDN; Muse Spark's landmarks in 4.5 to 7.1 s. Up to 800 places a street, the first kilometre first. |
-| **Engineering** | A vector-tile decoder and a GeoParquet row-group index written for this project; a show drawn on a 2D canvas through its own perspective camera, with name tags kept off the street and off each other; walking with GPS fixes put on the street and smoothed by their accuracy; over 200 unit tests and a live check of every demo street on the deployment (`npm run check:demo`). |
+| **Engineering** | A vector-tile decoder and a GeoParquet row-group index written for this project; a show drawn on a 2D canvas through its own perspective camera, with name tags kept off the street and off each other; walking with GPS fixes put on the street and smoothed by their accuracy; 145 unit tests and a live check of every demo street on the deployment (`npm run check:demo`). |
 
 ```mermaid
 flowchart LR
@@ -38,15 +38,13 @@ flowchart LR
   quest -->|"ids and checked lines"| show
 ```
 
-The repository also holds the earlier prototype, **Building what-if** (`/?mode=building`, described at the end): point a phone at a building, and one photo and the map turn it into a 3D model with its measurements, then a short video of what it could become (a roof garden, green walls, evening light).
+The repository is named for where the project began: What If Camera, a building prototype that became What's Ahead on 2026-10-28 and was removed on 2026-10-30 (`DECISIONS.md` D11, D41); the repository, the package and the deployment keep the old name. Operator: Minwoo Kwon (`seegongsik`). License: all rights reserved (see `LICENSE`); third-party packages and data keep their own licenses, listed below.
 
-The project started as What If Camera; the repository, the package and the deployment keep that name, and the code calls the street mode Street Ahead. Operator: Minwoo Kwon (`seegongsik`). License: all rights reserved (see `LICENSE`); third-party packages and data keep their own licenses, listed below.
+Places are what OpenStreetMap and Overture Maps have mapped, shown with their sources; places change. Walking times and fame are estimates and judgements, shown as such (≈, ✦).
 
-Places are what OpenStreetMap and Overture Maps have mapped, shown with their sources; places change. Walking times are estimates (≈). In the building prototype, heights, floors and designs are estimates and ideas, shown as such; a real roof garden needs a structural check.
+## How it works
 
-## What's Ahead
-
-The home page opens on a looping recording of the app (`public/demo/whats-ahead-loop.mp4`, 23 s, 2.2 MB; the page does not wait for it, the poster shows first): a viewfinder on a street drawn in light (an illustration, not a photo of a place: no people, text or brands), the shutter, then the app itself taking that picture as its photo at Times Square and running 7th Avenue south with real map data (OpenStreetMap and Overture places as of 2026-10-29, credited in the clip). A finger then taps a restaurant on the street, its card rises, and the finger taps the restaurant's Instagram link; a caption card names the page the link opens (the clip does not show that page, which is someone else's). Right under it comes Open camera, inside the first screen on any phone (on a short screen the clip shrinks to make room), then Continue on the last street from a photo when there is one, a line on what it does, Use a photo (a photo from the phone), a line on where the photo goes, and the demo streets, one per line. On a laptop or desktop (no touch screen) the first button flies down the first demo street instead, and Open camera moves next to Use a photo with a line saying the camera is for a phone on a street; the show itself stands in a phone-shaped column down the middle of a wide screen. The SYNTHETIC street is a small link at the bottom, under the credits: it is for a try without a photo, not a way in. The building prototype has no link there; it opens at `/?mode=building`.
+The home page opens on a looping recording of the app (`public/demo/whats-ahead-loop.mp4`, 23 s, 2.2 MB; the page does not wait for it, the poster shows first): a viewfinder on a street drawn in light (an illustration, not a photo of a place: no people, text or brands), the shutter, then the app itself taking that picture as its photo at Times Square and running 7th Avenue south with real map data (OpenStreetMap and Overture places as of 2026-10-29, credited in the clip). A finger then taps a restaurant on the street, its card rises, and the finger taps the restaurant's Instagram link; a caption card names the page the link opens (the clip does not show that page, which is someone else's). Right under it comes Open camera, inside the first screen on any phone (on a short screen the clip shrinks to make room), then Continue on the last street from a photo when there is one, a line on what it does, Use a photo (a photo from the phone), a line on where the photo goes, and the demo streets, one per line. On a laptop or desktop (no touch screen) the first button flies down the first demo street instead, and Open camera moves next to Use a photo with a line saying the camera is for a phone on a street; the show itself stands in a phone-shaped column down the middle of a wide screen. The SYNTHETIC street is a small link at the bottom, under the credits: it is for a try without a photo, not a way in.
 
 ![The SYNTHETIC street: the radar while the street is looked up, the light stopping at a landmark, the whole street with its landmarks and the chips](docs/screenshots/2026-10-28-street-show-synthetic.jpg)
 
@@ -72,92 +70,39 @@ The street is drawn as a diagram, not a picture of it: its line and the distance
 
 **Field log**: every photo taken on the phone (live or uploaded) adds a line to a log kept in that browser only: the time, the GPS fix and its accuracy, the heading and where it came from, the tilt, the raw orientation values, then the street found (its name, road class, distance from you, direction, places, length) or why none was, the time the lookup took, and a `?street=` link that replays it from the map alone. The home page shows it under "Field log", with Copy and Clear; nothing is sent anywhere unless you copy it. It is there to look into a street that came out wrong after a walk.
 
-## Building what-if (`/?mode=building`)
-
-![Photo, 3D model with dimensions, roof garden, evening, before and after (SYNTHETIC scene)](docs/screenshots/2026-10-27-synthetic-model-dimensions.jpg)
-
-### The idea: the top view is the ruler for the front view
-
-A photo alone has no scale. The map does: the building's footprint (the top view) says how wide each wall is and where its corners stand. The photo (the front view) says in which direction each corner lies and how high the roof line rises. Put together:
-
-1. The two outer vertical edges of the building are seen a certain angle apart. Every camera position on one circle sees them that far apart; the footprint fixes the circle, so the distance to the building is known.
-2. The roof is taken to stand at the same height at both outer edges (a flat roof, an assumption). That fixes how much nearer one edge is than the other, and with it the camera's place on the circle.
-3. If two sides show, a fifth mark on the near corner pins the position and the heading down independently (three-point resection).
-4. With the distances known, height = distance × (tan of the angle up to the roof line − tan of the angle down to the wall foot).
-
-GPS and compass only seed this. They enter as priors with their own uncertainty, so a GPS fix 9 m off or a compass 11° off is corrected by the picture rather than trusted (see the synthetic check below).
-
-### What it does
-
-1. **Capture**: the camera with a live readout of heading, tilt and GPS accuracy. The still keeps the GPS fix, the compass heading and the gravity tilt. Without motion sensors (or for an uploaded photo) the tilt is read from the photo itself: the building's vertical edges meet at a vanishing point that fixes pitch and roll.
-2. **Which building**: OpenStreetMap footprints within 150 m on a top view. Rays swept across the view pick the building in the middle of the picture; tap another if it is wrong.
-3. **Mark**: drag four dots to the outer left and right edges at the roof line and at the ground (a loupe helps), and optionally a fifth on the near corner. Measuring waits until the dots have been placed by hand, so the sensors' first guess is never shown as a measurement.
-4. **Estimate**: the photo is registered to the map, then height and floors come out (floors from OpenStreetMap `building:levels` when mapped, otherwise height ÷ 3 m, an assumption).
-5. **Design**: Muse Spark Open looks at the photo and the measured facts and chooses from a short menu (deck, planters, trees, pergola, seating, string lights, vines, window boxes, awning, wall lights, colours, captions). It never places anything or writes a number: the layout code places every item on the measured roof and walls. Without a key the app uses its local plan and says so.
-6. **Video** (rendered in the browser with three.js, about 27 s):
-   - the photo itself, then the camera moves and the photo's building turns solid (the photo is projected back onto the 3D scene from the camera that took it, so the first frame is the photo pixel for pixel);
-   - the camera stays on the photo's side of the building, where the picture covers the scene: it pushes in, swings toward the main facade and rises to the roof line. Once it moves, the road and cars in front of the building are left out of the projection, so they do not smear across the ground;
-   - the photo stays on every wall it saw. The selected building's unseen walls get a drawn facade (a window grid on the storey height, the wall colour taken from the photo); other buildings stay plain there. Floor lines and dimension lines show during the measurement (width and depth from the map, height marked ≈);
-   - the garden grows, the vines climb, the sun goes down at the real evening sun position for that place and date, the lights and some windows come on;
-   - back to the exact photo viewpoint for a before/after wipe.
-7. **Record and share**: the canvas is recorded (MP4 where the browser can, otherwise WebM) with the map attribution and estimate labels burned in.
-
-### Demo and real use: one pipeline
-
-- **Live**: `Open camera` on a phone (HTTPS needed, so use the Vercel deployment).
-- **Use a photo**: location, heading and focal length are read from EXIF when present; otherwise type them. Tilt comes from the building's edges.
-- **Preset**: `Save preset` writes one JSON file with the photo, what the phone knew, the footprints as fetched, the pick, the marks and the plan. `/?preset=/presets/name.json&autoplay=1` replays it straight into the video, offline and identical every time; `&size=1080` renders 1080 × 1920 for the demo recording. See `public/presets/README.md`.
-- **Synthetic demo**: `/?demo=synthetic` (labeled SYNTHETIC everywhere). Invented buildings around a placeholder location and a photo rendered from a known camera; the app gets only what a phone would know (a GPS fix 9.2 m off, a compass 11° off, no height for the target) and the facts panel compares its answers with the truth.
-
-### Synthetic check
-
-SYNTHETIC numbers from this repository, not real-world accuracy (that is not measured yet):
-
-| Case (GPS fix about 9 m off, compass about 11° off) | Height (true 18.6 m) | Camera position error | Heading error |
-| --- | --- | --- | --- |
-| Synthetic demo in the browser: marks within 1.5 px, near corner marked, gravity tilt | 18.54 m | 0.08 m | 0.02° |
-| Unit test scene: four marks within 1.5 px, no near corner | 18.68 m | 1.5 m | 1.7° |
-| Upload path in the browser: no sensors, tilt read from the photo (13.0°, true 14°), heading typed | 18.5 m | not recorded | corrected by 10.9° (error was 11°) |
-
 ## Models
 
 | Role | Model | Where | Status |
 | --- | --- | --- | --- |
-| Design choices and captions from the photo and the facts | `meta-models/muse-spark-open-1026` | Baseten, OpenAI-compatible Chat Completions | wired; used when `BASETEN_API_KEY` is set |
-| What's Ahead: which mapped places' names are readable in the photo, and in which of SAM's boxes | `meta-models/muse-spark-open-1026` | Baseten | wired (`/api/signs`); used when `BASETEN_API_KEY` is set |
-| What's Ahead: the landmarks and each chip's best-known places, by list number from the street's places, with a reason from a menu (iconic, historic, flagship, culture, well known) | `meta-models/muse-spark-open-1026` | Baseten | wired (`/api/landmarks`); the map's ranking without a key or an answer |
-| What's Ahead: quest stops by id, a title and a line per stop | `meta-models/muse-spark-open-1026` | Baseten | wired (`/api/quest`); the app's own pick without a key |
-| What's Ahead: every sign in the photo, as a box and an outline (prompt "sign"; "shop sign", "signboard" or "storefront" on request), numbered for the sign check and cut out for the place's card | `sam-3.1` | Meta Model API, Responses API | wired (`/api/sam`); used in the street view when `MODEL_API_KEY` is set, unless `SAM_DISABLED=1` |
-| Building outline and corners from a tap (automatic marks) | `sam-3.1` | Meta Model API | planned |
+| The landmarks and each chip's best-known places, by list number from the street's places, with a reason from a menu (iconic, historic, flagship, culture, well known) | `meta-models/muse-spark-open-1026` | Baseten | wired (`/api/landmarks`); the map's ranking without a key or an answer |
+| Quest stops by id, the famous ones it knows first, with a title and a line per stop (checked for digits and names) | `meta-models/muse-spark-open-1026` | Baseten | wired (`/api/quest`); the app's own pick without a key |
+| Which mapped places' names are readable in the photo, and in which of SAM's boxes | `meta-models/muse-spark-open-1026` | Baseten, OpenAI-compatible Chat Completions | wired (`/api/signs`); used when `BASETEN_API_KEY` is set |
+| Every sign in the photo, as a box and an outline (prompt "sign"; "shop sign", "signboard" or "storefront" on request), numbered for the sign check and cut out for the place's card | `sam-3.1` | Meta Model API, Responses API | wired (`/api/sam`); used in the street view when `MODEL_API_KEY` is set, unless `SAM_DISABLED=1` |
 
-When the model is configured, the photo (downscaled to 1024 px) and the measured facts or the nearest places' names are sent to it through the app's server, which keeps none of it; the providers' own terms apply to what they receive (Meta's free credits allow it to use what is sent to improve its products). The page says so where the photo is taken and on the home page. The landmark and quest requests carry the street's places (names, kinds, distances) and the street's position rounded to about a kilometre on the phone, and no photo. Muse Wonder is documented as unavailable in South Korea, so it is not used. The video is rendered, not generated: a video model would not keep the floor count and the dimension lines consistent from frame to frame.
+When the models are configured, the photo (downscaled to 1024 px) and the nearest places' names are sent to them through the app's server, which keeps none of it; the providers' own terms apply to what they receive (Meta's free credits allow it to use what is sent to improve its products). The page says so where the photo is taken and on the home page. The landmark and quest requests carry the street's places (names, kinds, distances) and the street's position rounded to about a kilometre on the phone, and no photo. Muse Wonder is documented as unavailable in South Korea, so it is not used.
 
 ## Data
 
 | Data | Source | License |
 | --- | --- | --- |
-| Building footprints, `height`, `building:levels` | OpenStreetMap via the Overpass API: `overpass-api.de`, then `overpass.private.coffee` (8 s each) | ODbL, "© OpenStreetMap contributors" shown on screen and in videos |
-| Fallback footprints when every Overpass server is full | OpenStreetMap vector tiles from OpenFreeMap (OpenMapTiles schema, zoom 14, `building` layer); their heights are approximate and used for neighbours only | ODbL; "© OpenStreetMap contributors · OpenMapTiles · OpenFreeMap" |
-| Streets for What's Ahead: named roads (`transportation_name` layer) and, as a fallback, places with their kind (`poi` layer; offices and bike docks left out) | OpenFreeMap vector tiles (OpenMapTiles schema, zoom 14, up to 12 tiles along the heading) | ODbL; "© OpenStreetMap contributors · OpenMapTiles · OpenFreeMap" |
+| Streets: named roads (`transportation_name` layer) and, as a fallback, places with their kind (`poi` layer; offices and bike docks left out) | OpenFreeMap vector tiles (OpenMapTiles schema, zoom 14, up to 12 tiles along the heading) | ODbL; "© OpenStreetMap contributors · OpenMapTiles · OpenFreeMap" |
 | Places along the street: name, kind (`basic_category`, `taxonomy.primary`), confidence, websites, socials (Facebook pages), brand, position | Overture Maps places, release 2026-10-21.0, GeoParquet in the public bucket `overturemaps-us-west-2`: only the row groups that meet the street (`server/data/overture-places.ts`, made by `node scripts/overture-index.mjs`) and only these columns, with HTTP range requests; confidence 0.5 and up, open places, street-level kinds | CDLA-Permissive-2.0, "Places © Overture Maps Foundation" on screen |
-| Fallback street when the tiles cannot place the camera (roads with their nodes, `name`, `ref`), and shops when Overture is off (`shop`, `amenity`, `tourism`, `leisure` with `name`, `brand`, `opening_hours`, `cuisine`, `website`, `contact:instagram`, `contact:facebook`) | OpenStreetMap via the Overpass API (same servers as above; boxes along the street rather than a distance from it; 20 s in all). The answer's `notes` say why a fallback was used | ODbL, "© OpenStreetMap contributors" on screen |
-| Sun position | Astronomical Almanac low-precision formulas | computed |
+| Fallback street when the tiles cannot place the camera (roads with their nodes, `name`, `ref`), and shops when Overture is off (`shop`, `amenity`, `tourism`, `leisure` with `name`, `brand`, `opening_hours`, `cuisine`, `website`, `contact:instagram`, `contact:facebook`) | OpenStreetMap via the Overpass API (`overpass-api.de`, then `overpass.private.coffee`; boxes along the street; 20 s in all, 5 s when the tiles answered but had no named street). The answer's `notes` say why a fallback was used | ODbL, "© OpenStreetMap contributors" on screen |
 
 ## Assumptions
 
-What's Ahead: a compass within 40° of a street's direction means the camera looks along it; landmarks are Muse Spark's judgement from what it knows of the places (marked ✦ with its reason), or a ranking from what the map says (kind, brand, name, confidence, links), not a measure of visitors or reviews; the walking dot takes the GPS fix as it comes, smoothed along the street.
-
-Building what-if, listed in the facts panel whenever they are used: the roof stands at the same height at both outer edges (flat roof); 3.0 m per floor when OpenStreetMap has no level count; 1.5 m camera height when the foot of the walls is hidden; 67° field of view across the long side for a live capture (a typical 26 mm equivalent main camera; EXIF focal length for uploads); 9 m for neighbouring buildings without a mapped height (context only); compass uncertainty 20° when the phone reports none. Sizes of the decorations are design choices, not measurements.
+A compass within 40° of a street's direction means the camera looks along it; landmarks are Muse Spark's judgement from what it knows of the places (marked ✦ with its reason), or a ranking from what the map says (kind, brand, name, confidence, links), not a measure of visitors or reviews; the walking dot takes the GPS fix as it comes, smoothed along the street.
 
 ## Run locally
 
 ```bash
 npm install
-npm test          # geometry, registration, height, tilt, EXIF, Overpass parsing, routes, plan, layout, timeline
+npm test          # street matching and following, places, landmarks and quests (prompts and checks), tags, walking, routes
 npm run lint
 npm run build
 npm run check:api # transpiles the API functions file by file and calls them without keys
-npm run dev       # http://localhost:5173/?demo=street (SYNTHETIC street), ?demo=synthetic&mode=building
+npm run dev       # http://localhost:5173/?demo=street (SYNTHETIC street), ?street=fifth-avenue (a demo street; needs the outside hosts)
+npm run check:demo # opens the nine demo streets on the deployment: checks them and fills the CDN (run after each deployment)
 ```
 
 ## Secrets and settings
@@ -170,46 +115,30 @@ Server side only; `/api/status` returns booleans.
 | `MODEL_API_KEY` (or `META_API_KEY`) | Meta Model API: SAM 3.1 (`/api/sam`) |
 | `SAM_DISABLED` | `1` turns SAM 3.1 off; the sign check reads the plain photo |
 | `OVERPASS_URLS` (or `OVERPASS_URL`) | Overpass API instances to try first, comma-separated, HTTPS only |
-| `FOOTPRINT_TILES` | `off` disables the vector-tile fallback |
+| `STREET_TILES` | `off` leaves out the OpenFreeMap vector tiles (streets then come from Overpass) |
 | `OVERTURE_PLACES` | `off` takes the places from OpenStreetMap only |
-| `DAILY_FOOTPRINT_CALL_CAP`, `DAILY_SPARK_CALL_CAP`, `DAILY_STREET_CALL_CAP`, `DAILY_SAM_CALL_CAP` | per-instance daily caps (defaults 2000, 300, 2000 and 1000); landmarks, quests, the sign check and designs share the Spark cap, and a street's landmarks asked again come from the instance's cache |
+| `DAILY_SPARK_CALL_CAP`, `DAILY_STREET_CALL_CAP`, `DAILY_SAM_CALL_CAP` | per-instance daily caps (defaults 300, 2000 and 1000); landmarks, quests and the sign check share the Spark cap, and a street's landmarks asked again come from the instance's cache or the CDN |
 
 ## Open source used
 
 | Package | Role | License |
 | --- | --- | --- |
-| `three` (with its `examples/jsm` lines and BufferGeometryUtils) | 3D rendering | MIT |
 | `hyparquet` | Reads Overture's Parquet files on the server (row groups and columns by range request; zstd through Node's own `zlib`) | MIT |
 | `@meta-sam/parser` | Meta's reader for SAM 3.1's token text: boxes, and masks turned into SVG outlines (server) | SAM License |
 | `vite`, `vitest` | build, dev server, tests | MIT |
-| `typescript`, `typescript-eslint`, `eslint`, `@eslint/js`, `globals`, `@types/three`, `@types/node` | types and lint | Apache-2.0 / MIT |
+| `typescript`, `typescript-eslint`, `eslint`, `@eslint/js`, `globals`, `@types/node` | types and lint | Apache-2.0 / MIT |
 
 All application code was written in this repository during the hackathon (from 2026-10-27 02:00 KST).
 
 ## Limits
 
-What's Ahead:
-
-- Only what OpenStreetMap has mapped, as it was mapped: shop coverage, names and opening hours vary by city, and shops close and open. The card says so and names the source.
+- Only what Overture Maps and OpenStreetMap have mapped, as they mapped it: coverage, names and opening hours vary by city, and shops close and open. The card says so and names the source.
 - The street is matched from GPS and compass alone. On a corner or under tall buildings the GPS fix can sit on the cross street; the app shows which street it took (its name at the top, and how far from your position when it had to look wider), and the sign check says whether the photo fits it.
 - A street that changes name keeps going only if the next way runs straight on; a dual carriageway mapped as two one-way roads is followed along the carriageway beside the camera.
 - Roads without a name cannot be matched. When Overture cannot answer, places come from the map tiles and carry only their kind: no hours, links or brands.
 - Overture's places are a monthly snapshot (release 2026-10-21.0; older releases leave the bucket after a few months, so the index is remade for a new one). Its place data has no opening hours; many places are on upper floors rather than at street level.
 - Quest lines are ideas, not reviews: the model is told to state no menus, prices, exhibits or opening times; hours are as mapped and may be out of date. The sign check only knows names on the map: a sign it reads that the map lacks is not reported.
-- Landmarks are a judgement, not visitor numbers: Muse Spark knows famous places well and small local ones hardly at all, its knowledge has a date, and it can only pick from the places it was shown (up to 200 of a street's 400). A place the data puts in the wrong spot keeps its wrong spot, and a famous name draws the model's pick: Overture has "Palo Alto - Stanford Mall" 4.3 km up University Avenue in East Palo Alto (the model picked it as iconic), so places known to be misplaced are left out by name and position, and a place the data names by its web address gets its name ("graumanschinese.org" is the TCL Chinese Theatre) (`src/street/errata.ts`); on the Las Vegas Strip most casinos sit on the street's line at the wrong block (Mandalay Bay 2.5 km north of itself), which is why the Strip is not a demo street.
+- Landmarks are a judgement, not visitor numbers: Muse Spark knows famous places well and small local ones hardly at all, its knowledge has a date, and it can only pick from the places it was shown (up to 200 of a street's 800 places; 400 on a demo street). A place the data puts in the wrong spot keeps its wrong spot, and a famous name draws the model's pick: Overture has "Palo Alto - Stanford Mall" 4.3 km up University Avenue in East Palo Alto (the model picked it as iconic), so places known to be misplaced are left out by name and position, and a place the data names by its web address gets its name ("graumanschinese.org" is the TCL Chinese Theatre) (`src/street/errata.ts`); on the Las Vegas Strip most casinos sit on the street's line at the wrong block (Mandalay Bay 2.5 km north of itself), which is why the Strip is not a demo street.
 - Walking follows the browser's GPS fix: between tall buildings it can be 30 to 50 m off (the dot glides, but along the wrong block for a while); it follows only while the page is open and in front (phones pause location for a page in the background); without a compass the camera follows the street's direction, not the phone's.
 - Used on the operator's phones (also indoors: the street matches within 120 m without a photo); walking a busy street with the live dot is still to be recorded.
-
-Building what-if:
-
-- Flat roofs and simple outlines. A pitched roof, a setback or a rooftop structure breaks the same-height assumption; marks must sit on the building's outermost vertical edges.
-- Buildings joined to their neighbours: the outer edge seen in the photo may not be the footprint's outermost corner.
-- OpenStreetMap coverage and tags vary by place; where the footprint is missing the app cannot place the photo.
-- Portrait capture only. The compass is magnetic; the registration absorbs the declination along with the compass error.
-- Interior layouts are not shown: they cannot be seen from outside.
-- One photo sees one side. What stood in front of the building (cars, trees) is painted onto the walls and the ground, and parts the photo did not see show plain walls; the camera therefore stays near the photo's viewpoint. Map boxes taller than the real building (a curved roof) can show sky at their top edge when the camera rises. Masks from SAM 3.1 (sky, foreground) are the planned fix.
-- The floor count is height ÷ 3.0 m unless OpenStreetMap has `building:levels`; older and civic buildings with tall storeys come out with too many floors.
-- Window boxes are left out for real photos until the window positions are measured; the design model may still choose them.
-- A cropped photo (a screenshot) has its optical centre off the middle; a preset can carry it as `capture.principalPoint`, the live app assumes the middle.
-- The public Overpass servers are often full (on 2026-10-27 overpass-api.de answered "at capacity" to every lookup from the deployment); lookups fall back to a second server and then to vector tiles. A building that straddles a tile border is cut in two in the tile fallback.
-- Real-phone checks of the orientation on iOS and Android, real buildings with known heights and SAM 3.1 automatic marks are next (`PROGRESS.md`).
+- The public Overpass servers are often full; the street comes from OpenFreeMap's vector tiles first, and Overpass is asked only when the tiles cannot place the camera on a named street.

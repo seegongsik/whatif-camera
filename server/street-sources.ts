@@ -20,8 +20,7 @@ import { boxAround, piecesOf, type Box } from "../src/street/overpass.js";
 import { OVERTURE_PLACES } from "./data/overture-places.js";
 import { bucketReader, overturePlaces } from "./overture.js";
 import { shopsFromTile, streetsFromTile } from "../src/street/tiles.js";
-import { OPENFREEMAP_TILEJSON, TILE_ATTRIBUTION, UpstreamError, USER_AGENT, overpassUrls } from "./footprint-sources.js";
-import { OSM_ATTRIBUTION } from "../src/data/footprints.js";
+import { OPENFREEMAP_TILEJSON, OSM_ATTRIBUTION, TILE_ATTRIBUTION, UpstreamError, USER_AGENT, overpassUrls } from "./upstream.js";
 import type { EnvMap } from "./keys.js";
 
 const CACHE_MS = 15 * 60 * 1000;
@@ -192,7 +191,7 @@ export async function lookupStreet(origin: LatLon, headingDeg: number, deps: Dep
   let base: { ways: StreetWay[]; shops: Shop[]; source: string; attribution: string; overpass: boolean } | null = null;
   let tileData: { ways: StreetWay[]; shops: Shop[] } | null = null;
   let tilesFoundNoStreet = false;
-  if (env.FOOTPRINT_TILES !== "off") {
+  if (env.STREET_TILES !== "off") {
     try {
       tileData = await fromTiles(origin, headingDeg, deps);
       const source = "OpenStreetMap via OpenFreeMap vector tiles";

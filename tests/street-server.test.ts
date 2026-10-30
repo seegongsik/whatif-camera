@@ -106,7 +106,7 @@ describe("street lookup (SYNTHETIC)", () => {
       if (body.includes("out center tags")) return Response.json(syntheticShopsJson());
       return Response.json(syntheticWaysJson());
     });
-    const street = await lookupStreet(origin, SYNTHETIC_CAPTURE.headingDeg, { fetchImpl, env: { OVERTURE_PLACES: "off", FOOTPRINT_TILES: "off" } });
+    const street = await lookupStreet(origin, SYNTHETIC_CAPTURE.headingDeg, { fetchImpl, env: { OVERTURE_PLACES: "off", STREET_TILES: "off" } });
     expect(calls).toHaveLength(3);
     expect(calls[0].body).toContain("way(around:130,");
     expect(calls[1].body).toContain(`[name="${SYNTHETIC_STREET_NAME}"]`);
@@ -173,7 +173,7 @@ describe("street lookup (SYNTHETIC)", () => {
     const { fetchImpl } = fakeFetch(({ body }) => (body.includes("out center tags") ? Response.json(syntheticShopsJson()) : Response.json(syntheticWaysJson())));
     // 70 m east of the avenue.
     const off = { lat: origin.lat, lon: origin.lon + 70 / (111_320 * Math.cos((origin.lat * Math.PI) / 180)) };
-    const street = await lookupStreet(off, 4, { fetchImpl, env: { OVERTURE_PLACES: "off", FOOTPRINT_TILES: "off" } }, "synthetic avenue");
+    const street = await lookupStreet(off, 4, { fetchImpl, env: { OVERTURE_PLACES: "off", STREET_TILES: "off" } }, "synthetic avenue");
     expect(street.name).toBe(SYNTHETIC_STREET_NAME);
     expect(street.streetDistanceM).toBeGreaterThan(70);
     expect(street.notes).toBeUndefined();
@@ -196,7 +196,7 @@ describe("street lookup (SYNTHETIC)", () => {
     let asked = 0;
     const street = await lookupStreet(origin, SYNTHETIC_CAPTURE.headingDeg, {
       fetchImpl,
-      env: { FOOTPRINT_TILES: "off" },
+      env: { STREET_TILES: "off" },
       places: async (boxes) => {
         asked = boxes.length;
         return places;

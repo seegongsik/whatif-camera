@@ -1,5 +1,11 @@
 # PROGRESS
 
+## 2026-10-30 (KST) · 4일 차 ⑤: 레포를 What's Ahead 하나로 (D41)
+- 민우: 「README나 공개 레포의 겉모습이 지금 제품 컨셉과 전혀 다름, 브레인스토밍 단계의 잔재가 남아 있음」. 건물 시제품 코드(레포의 약 40%, three.js를 모든 방문자가 내려받음)를 어떻게 할지 물음 → 「완전히 삭제」.
+- 한 것: 건물 모드 전부 삭제(코드, 테스트 56개, three.js, 프리셋, 건물 스크린샷, CSS 37규칙), 길 찾기가 쓰던 것은 `server/upstream.ts`로, README·CLAUDE.md·`.env.example`을 What's Ahead만으로, `index.html`에 설명·Open Graph·Twitter 카드와 미리보기 그림 `public/og.jpg`, `package.json`에 설명·홈페이지.
+- 확인: `npm test` 145개 통과(실호출 11개 건너뜀), lint·build·check:api 통과. JS 821 kB → 135 kB(gzip 231 → 49 kB).
+- 민우가 할 것(확인 필요): GitHub 저장소 About의 설명·웹사이트·주제(제안 문구는 PR #22), Settings → Social preview에 `public/og.jpg`.
+
 ## 2026-10-30 (KST) · 4일 차 ④: 심사 준비 (D37~D40)
 - 민우: 입상 가능성 재검토 뒤 「2, 3, 4 진행」. 심사관은 많지 않고 레포를 AI로 훑은 뒤 유망한 레포의 데모 영상만 볼 것 → 레포에 기술력·AI가 눈에 띄게, 하단 데모 거리는 완벽하게, 인스타·페이스북 인앱은 나중(Meta 개발자 몫), 크롬·엣지에서 잘 돌아가면 됨, GPS를 꺼 둔 개발자가 「이거 뭐야? 안 되네」 하고 버리지 않게 권한 요청과 피드백.
 - 만든 것:

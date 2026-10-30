@@ -209,6 +209,12 @@ const SHARE_PATH = "M12 15V3.5M7.5 8 12 3.5 16.5 8M6 11.5H5v9h14v-9h-1";
 const FIT_PATH = "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5";
 
 /** The ground the visitor's camera may look at: the points' box with a margin, metres. */
+/** A short buzz on phones that can, once the page has been touched (before that the browser refuses it and says so in the console). */
+function buzz(ms: number): void {
+  if (navigator.userActivation?.hasBeenActive === false) return;
+  navigator.vibrate?.(ms);
+}
+
 function boxAround(points: readonly EN[], margin: number): ExploreLimits["box"] {
   let minX = Infinity;
   let maxX = -Infinity;
@@ -1331,7 +1337,7 @@ export class StreetShow {
       if (age < IMPACT_MS) this.drawImpact(project, this.spots.get(shop.id)!, q, age, color, this.lastPose);
       if (age >= 0 && age < IMPACT_MS && this.run?.first && !this.felt.has(shop.id) && !this.popAt.has(shop.id)) {
         this.felt.add(shop.id);
-        navigator.vibrate?.(14);
+        buzz(14);
       }
       ctx.globalCompositeOperation = "lighter";
       ctx.strokeStyle = rgba(color, 0.85);
@@ -1576,7 +1582,7 @@ export class StreetShow {
         hgt = Math.max(8, (b.y2 - b.y1) * sy) + (endH - Math.max(8, (b.y2 - b.y1) * sy)) * k;
       } else if (sign.landedAt === null) {
         sign.landedAt = now;
-        navigator.vibrate?.(10);
+        buzz(10);
       }
       if (sign.landedAt !== null && now - sign.landedAt < IMPACT_MS) this.drawImpact(project, spot, q, now - sign.landedAt, READ_GREEN, this.lastPose);
       const w = hgt * aspect;
@@ -2083,7 +2089,7 @@ export class StreetShow {
     if (prev?.onStreet && spot.onStreet && !this.focus) {
       for (const shop of passed(this.landmarks, prev.s, spot.s)) {
         this.popAt.set(shop.id, now);
-        navigator.vibrate?.(14);
+        buzz(14);
         this.note(`Passing ${shop.name}, on your ${shop.side}`, 4000);
       }
     }
