@@ -75,3 +75,10 @@ export function normDeg(deg: number): number {
   const d = deg % 360;
   return d < 0 ? d + 360 : d;
 }
+
+const COMPASS = ["north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west"];
+
+/** A bearing as the nearest of the eight compass words. */
+export function compassWord(bearingDeg: number): string {
+  return COMPASS[Math.round(normDeg(bearingDeg) / 45) % 8];
+}

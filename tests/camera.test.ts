@@ -3,15 +3,21 @@ import {
   alphaForCompassHeading,
   basisFromOrientation,
   deviceAxesFromEuler,
-  intrinsicsFrom35mm,
-  intrinsicsFromLongSideFov,
-  longSideFovDeg,
   orientationFromBasis,
   orientationFromEuler,
-  pixelRay,
-  projectPoint,
 } from "../src/camera/pose.js";
-import { noise } from "./scene-fixture.js";
+
+/** Repeatable numbers in [-1, 1) from a seed. */
+function noise(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return (((t ^ (t >>> 14)) >>> 0) / 4294967296) * 2 - 1;
+  };
+}
 
 describe("device orientation", () => {
   it("reads an upright phone facing north as heading 0, level", () => {
@@ -63,42 +69,5 @@ describe("device orientation", () => {
   it("dips the right side of the picture for positive roll", () => {
     const b = basisFromOrientation({ headingDeg: 0, pitchDeg: 0, rollDeg: 10 });
     expect(b.right.z).toBeLessThan(0);
-  });
-});
-
-describe("pinhole camera", () => {
-  it("projects a point back onto the ray through its pixel", () => {
-    const pose = {
-      position: { x: 2, y: -3, z: 1.5 },
-      orientation: { headingDeg: 31, pitchDeg: 12, rollDeg: 4 },
-      intrinsics: intrinsicsFromLongSideFov(1080, 1440, 67),
-    };
-    const p = { x: 20, y: 30, z: 14 };
-    const px = projectPoint(pose, p)!;
-    const ray = pixelRay(pose.orientation, pose.intrinsics, px.u, px.v);
-    const rel = { x: p.x - 2, y: p.y + 3, z: p.z - 1.5 };
-    const n = Math.hypot(rel.x, rel.y, rel.z);
-    expect(ray.x).toBeCloseTo(rel.x / n, 9);
-    expect(ray.y).toBeCloseTo(rel.y / n, 9);
-    expect(ray.z).toBeCloseTo(rel.z / n, 9);
-  });
-
-  it("puts the optical axis at the picture centre and returns null behind", () => {
-    const pose = {
-      position: { x: 0, y: 0, z: 0 },
-      orientation: { headingDeg: 90, pitchDeg: 0, rollDeg: 0 },
-      intrinsics: intrinsicsFromLongSideFov(800, 600, 60),
-    };
-    const ahead = projectPoint(pose, { x: 10, y: 0, z: 0 })!;
-    expect(ahead.u).toBeCloseTo(400);
-    expect(ahead.v).toBeCloseTo(300);
-    expect(projectPoint(pose, { x: -10, y: 0, z: 0 })).toBeNull();
-  });
-
-  it("matches 35 mm equivalent focal lengths on the diagonal", () => {
-    // 26 mm on a 4:3 frame: about 67° across the long side.
-    const k = intrinsicsFrom35mm(4032, 3024, 26);
-    expect(longSideFovDeg(k)).toBeGreaterThan(66.5);
-    expect(longSideFovDeg(k)).toBeLessThan(68);
   });
 });

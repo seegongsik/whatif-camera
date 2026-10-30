@@ -2,16 +2,15 @@
  * Route handlers on Web-standard Request/Response, shared by the Vercel
  * functions in api/ and the Vite dev server.
  */
-import type { DesignFacts } from "../src/design/plan.js";
-import { MAX_RADIUS_M } from "../src/data/overpass.js";
-import { designWithSpark } from "./design.js";
 import { keyPresence, type EnvMap } from "./keys.js";
 import { takeCall } from "./limits.js";
-import { lookupFootprints, UpstreamError } from "./footprint-sources.js";
 import { SparkError } from "./spark.js";
+import { UpstreamError } from "./upstream.js";
 import { lookupStreet } from "./street-sources.js";
 import { picksWithSpark, questWithSpark, signsWithSpark } from "./street-spark.js";
-import { isGroupKey, PICK_MAX_PLACES, type PickPlace } from "../src/street/picks.js";
+import { FAMOUS_STREETS } from "../src/street/famous.js";
+import { isGroupKey, pickCandidates, PICK_DEMO_MAX_PLACES, PICK_MAX_PLACES, PICK_MIN_PLACES, roughPosition, type PickPlace } from "../src/street/picks.js";
+import { showReach } from "../src/street/show-plan.js";
 import { isSignPrompt, SamError, SIGN_PROMPT, SIGN_PROMPTS, signsWithSam } from "./sam.js";
 import { SHOP_CATEGORIES, type ShopCategory } from "../src/street/osm.js";
 import { isQuestTheme, type QuestPlace } from "../src/street/quest.js";
@@ -30,30 +29,12 @@ export async function handleStatus(_request: Request, deps: Deps = {}): Promise<
   return json({ ok: true, ...keyPresence(deps.env ?? process.env) });
 }
 
-export async function handleFootprints(request: Request, deps: Deps = {}): Promise<Response> {
-  if (request.method !== "GET") return json({ error: "use GET" }, 405);
-  const url = new URL(request.url);
-  const lat = Number(url.searchParams.get("lat"));
-  const lon = Number(url.searchParams.get("lon"));
-  const radius = url.searchParams.has("radius") ? Number(url.searchParams.get("radius")) : 150;
-  if (!url.searchParams.has("lat") || !url.searchParams.has("lon") || !Number.isFinite(lat) || !Number.isFinite(lon)) {
-    return json({ error: "lat and lon are required numbers" }, 400);
-  }
-  if (Math.abs(lat) > 85 || Math.abs(lon) > 180 || !Number.isFinite(radius) || radius < 20 || radius > MAX_RADIUS_M) {
-    return json({ error: `lat within ±85, lon within ±180, radius 20 to ${MAX_RADIUS_M} m` }, 400);
-  }
-  if (!takeCall("footprints", (deps.now ?? Date.now)(), deps.env ?? process.env)) {
-    return json({ error: "daily footprint lookups for this server instance are used up" }, 429);
-  }
-  try {
-    const set = await lookupFootprints({ lat, lon }, radius, deps);
-    return json(set, 200, { "Cache-Control": "public, max-age=3600, s-maxage=86400" });
-  } catch (error) {
-    if (error instanceof UpstreamError) return json({ error: error.message }, error.status);
-    const message = error instanceof Error ? error.message : String(error);
-    return json({ error: `footprint lookup failed: ${message}` }, 502);
-  }
-}
+/**
+ * How long a street stands in the CDN: a day, then the stale one while a
+ * fresh one is looked up (a week), so a street someone opened before (a demo
+ * street) opens at once. A new deployment starts with an empty cache.
+ */
+const STREET_CACHE = "public, max-age=900, s-maxage=86400, stale-while-revalidate=604800";
 
 export async function handleStreet(request: Request, deps: Deps = {}): Promise<Response> {
   if (request.method !== "GET") return json({ error: "use GET" }, 405);
@@ -68,7 +49,7 @@ export async function handleStreet(request: Request, deps: Deps = {}): Promise<R
   }
   try {
     const street = await lookupStreet({ lat, lon }, ((heading % 360) + 360) % 360, deps, name?.trim());
-    return json(street, 200, { "Cache-Control": "public, max-age=900, s-maxage=3600" });
+    return json(street, 200, { "Cache-Control": STREET_CACHE });
   } catch (error) {
     if (error instanceof UpstreamError) return json({ error: error.message }, error.status);
     return json({ error: `street lookup failed: ${error instanceof Error ? error.message : String(error)}` }, 502);
@@ -107,6 +88,7 @@ function placeFrom(value: unknown): (SpotPlace & Partial<QuestPlace>) | null {
   if (hours) place.openingHours = hours;
   const cuisine = text(v.cuisine, 60);
   if (cuisine) place.cuisine = cuisine;
+  if (v.known === true) place.known = true;
   return place;
 }
 
@@ -136,7 +118,19 @@ function sparkFailure(error: unknown, what: string): Response {
   return json({ error: `${what} failed: ${error instanceof Error ? error.message : String(error)}` }, 502);
 }
 
-/** POST {theme, places, localTime?}: a quest along the street from Muse Spark Open. */
+/** The street's name and position as the page sends them, both optional; a message when either is out of shape. */
+function whereFrom(body: Record<string, unknown>): { street?: string; near?: { lat: number; lon: number } } | string {
+  const street = body.street === undefined ? undefined : text(body.street, 80);
+  if (body.street !== undefined && !street) return "street must be a name of 1 to 80 characters";
+  if (body.near === undefined) return { street };
+  const near = body.near as { lat?: unknown; lon?: unknown } | null;
+  if (typeof near !== "object" || near === null || typeof near.lat !== "number" || typeof near.lon !== "number" || !(Math.abs(near.lat) <= 85) || !(Math.abs(near.lon) <= 180)) {
+    return "near must be {lat, lon}";
+  }
+  return { street, near: { lat: near.lat, lon: near.lon } };
+}
+
+/** POST {theme, places, localTime?, street?, near?}: a quest along the street from Muse Spark Open. */
 export async function handleQuest(request: Request, deps: Deps = {}): Promise<Response> {
   if (request.method !== "POST") return json({ error: "use POST" }, 405);
   const body = await jsonBody(request);
@@ -145,10 +139,12 @@ export async function handleQuest(request: Request, deps: Deps = {}): Promise<Re
   const places = placesFrom(body.places, 80);
   if (!places || places.some((p) => !p.category || !p.kind)) return json({ error: "places must be 1 to 80 distinct places with id, name, category, kind, side and distanceM" }, 400);
   const localTime = typeof body.localTime === "string" && /^(Mo|Tu|We|Th|Fr|Sa|Su) [0-2]\d:[0-5]\d$/.test(body.localTime) ? body.localTime : undefined;
+  const where = whereFrom(body);
+  if (typeof where === "string") return json({ error: where }, 400);
   const gate = sparkGate(deps, "picks the stops itself");
   if (gate) return gate;
   try {
-    return json(await questWithSpark(places as QuestPlace[], body.theme, { localTime }, deps));
+    return json(await questWithSpark(places as QuestPlace[], body.theme, { localTime, ...where }, deps));
   } catch (error) {
     return sparkFailure(error, "quest");
   }
@@ -166,9 +162,15 @@ function pickPlaceFrom(value: unknown): PickPlace | null {
   return { id: v.id, name, kind, group: v.group, side: v.side, distanceM: Math.round(v.distanceM) };
 }
 
-/** POST {places, street?, near?}: the places the show names, picked by Muse Spark Open from the street's places (list numbers and a reason word only). */
+/**
+ * POST {places, street?, near?}: the places the show names, picked by Muse
+ * Spark Open from the street's places (list numbers and a reason word only).
+ * GET ?demo=<id>: the same for a demo street, looked up here, so the answer
+ * stands in the CDN like the street itself for everyone who opens it.
+ */
 export async function handleLandmarks(request: Request, deps: Deps = {}): Promise<Response> {
-  if (request.method !== "POST") return json({ error: "use POST" }, 405);
+  if (request.method === "GET") return demoLandmarks(new URL(request.url).searchParams.get("demo"), deps);
+  if (request.method !== "POST") return json({ error: "use POST, or GET with a demo street" }, 405);
   const body = await jsonBody(request);
   if (!body) return json({ error: "body must be a JSON object" }, 400);
   const list = Array.isArray(body.places) && body.places.length > 0 && body.places.length <= PICK_MAX_PLACES ? body.places.map(pickPlaceFrom) : null;
@@ -176,16 +178,34 @@ export async function handleLandmarks(request: Request, deps: Deps = {}): Promis
   if (!places || new Set(places.map((p) => p.id)).size !== places.length) {
     return json({ error: `places must be 1 to ${PICK_MAX_PLACES} distinct places with id, name, kind, group, side and distanceM` }, 400);
   }
-  const street = body.street === undefined ? undefined : text(body.street, 80);
-  if (body.street !== undefined && !street) return json({ error: "street must be a name of 1 to 80 characters" }, 400);
-  const near = body.near as { lat?: unknown; lon?: unknown } | undefined;
-  const nearOk = near !== undefined && typeof near === "object" && near !== null && typeof near.lat === "number" && typeof near.lon === "number" && Math.abs(near.lat) <= 85 && Math.abs(near.lon) <= 180;
-  if (near !== undefined && !nearOk) return json({ error: "near must be {lat, lon}" }, 400);
+  const where = whereFrom(body);
+  if (typeof where === "string") return json({ error: where }, 400);
   const gate = sparkGate(deps, "names the places by the map's own ranking");
   if (gate) return gate;
   try {
-    return json(await picksWithSpark(places, { street, near: nearOk ? { lat: near.lat as number, lon: near.lon as number } : undefined }, deps));
+    return json(await picksWithSpark(places, where, deps));
   } catch (error) {
+    return sparkFailure(error, "picks");
+  }
+}
+
+/** The street's own cache, for the model's picks along a demo street. */
+const DEMO_PICKS_CACHE = STREET_CACHE;
+
+async function demoLandmarks(id: string | null, deps: Deps): Promise<Response> {
+  const demo = FAMOUS_STREETS.find((s) => s.id === id);
+  if (!demo) return json({ error: `demo must be one of ${FAMOUS_STREETS.map((s) => s.id).join(", ")}` }, 400);
+  const gate = sparkGate(deps, "names the places by the map's own ranking");
+  if (gate) return gate;
+  try {
+    // The street the page gets for the same demo, so the ids answer for its places.
+    const street = await lookupStreet({ lat: demo.lat, lon: demo.lon }, demo.headingDeg, deps, demo.street);
+    const places = pickCandidates(street.shops, showReach(street.shops, street.route.length), street.name, PICK_DEMO_MAX_PLACES);
+    if (places.length < PICK_MIN_PLACES) return json({ error: "the street has too few places to pick from" }, 404);
+    const answer = await picksWithSpark(places, { street: street.name?.slice(0, 80), near: roughPosition(demo) }, deps);
+    return json(answer, 200, { "Cache-Control": DEMO_PICKS_CACHE });
+  } catch (error) {
+    if (error instanceof UpstreamError) return json({ error: error.message }, error.status);
     return sparkFailure(error, "picks");
   }
 }
@@ -233,71 +253,5 @@ export async function handleSam(request: Request, deps: Deps = {}): Promise<Resp
   } catch (error) {
     if (error instanceof SamError) return json({ error: error.message }, error.status === 503 || error.status === 429 ? error.status : 502);
     return json({ error: `segmentation failed: ${error instanceof Error ? error.message : String(error)}` }, 502);
-  }
-}
-
-function factsFrom(value: unknown): DesignFacts | null {
-  if (typeof value !== "object" || value === null) return null;
-  const v = value as Record<string, unknown>;
-  const finite = (x: unknown, lo: number, hi: number) => typeof x === "number" && Number.isFinite(x) && x >= lo && x <= hi;
-  if (
-    !finite(v.heightM, 1, 1000) ||
-    !finite(v.floors, 1, 300) ||
-    !finite(v.roofAreaM2, 1, 200_000) ||
-    !finite(v.widthM, 1, 2000) ||
-    !finite(v.depthM, 1, 2000) ||
-    typeof v.mainFacadeFacing !== "string" ||
-    (v.hemisphere !== "north" && v.hemisphere !== "south")
-  ) {
-    return null;
-  }
-  const facts: DesignFacts = {
-    heightM: Math.round((v.heightM as number) * 10) / 10,
-    floors: Math.round(v.floors as number),
-    roofAreaM2: Math.round(v.roofAreaM2 as number),
-    widthM: Math.round((v.widthM as number) * 10) / 10,
-    depthM: Math.round((v.depthM as number) * 10) / 10,
-    mainFacadeFacing: String(v.mainFacadeFacing).slice(0, 20),
-    hemisphere: v.hemisphere,
-  };
-  if (typeof v.buildingKind === "string" && /^[a-z_:;-]{1,40}$/.test(v.buildingKind)) facts.buildingKind = v.buildingKind;
-  if (typeof v.facadeColor === "string" && /^#[0-9a-f]{6}$/i.test(v.facadeColor)) facts.facadeColor = v.facadeColor;
-  return facts;
-}
-
-export async function handleDesign(request: Request, deps: Deps = {}): Promise<Response> {
-  if (request.method !== "POST") return json({ error: "use POST" }, 405);
-  let body: Record<string, unknown>;
-  try {
-    body = (await request.json()) as Record<string, unknown>;
-  } catch {
-    return json({ error: "body must be JSON" }, 400);
-  }
-  const facts = factsFrom(body?.facts);
-  if (!facts) return json({ error: "facts are missing or out of range" }, 400);
-  const image = body.image;
-  if (image !== undefined) {
-    if (
-      typeof image !== "string" ||
-      image.length > MAX_IMAGE_DATA_URL_CHARS ||
-      !/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(image)
-    ) {
-      return json({ error: `image must be a base64 JPEG, PNG or WebP data URL under ${MAX_IMAGE_DATA_URL_CHARS} characters` }, 400);
-    }
-  }
-  const env = deps.env ?? process.env;
-  if (!keyPresence(env).basetenApiKeyConfigured) {
-    return json({ error: "BASETEN_API_KEY is not configured; the page uses its local plan" }, 503);
-  }
-  if (!takeCall("spark", (deps.now ?? Date.now)(), env)) {
-    return json({ error: "daily design calls for this server instance are used up" }, 429);
-  }
-  try {
-    const result = await designWithSpark(facts, image as string | undefined, deps);
-    return json(result);
-  } catch (error) {
-    if (error instanceof SparkError) return json({ error: error.message }, error.status === 503 ? 503 : 502);
-    const message = error instanceof Error ? error.message : String(error);
-    return json({ error: `design failed: ${message}` }, 502);
   }
 }

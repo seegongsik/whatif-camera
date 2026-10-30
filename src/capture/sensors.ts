@@ -39,7 +39,7 @@ export class Sensors {
   positionError: string | null = null;
   /** GeolocationPositionError's code: 1 refused, 2 unavailable, 3 timed out. */
   positionErrorCode: number | null = null;
-  /** Motion access was refused; the capture then reads tilt from the photo and asks for the building on the map. */
+  /** Motion access was refused: no compass, so the person picks the direction after the photo. */
   motionDenied = false;
   onChange: (() => void) | null = null;
 

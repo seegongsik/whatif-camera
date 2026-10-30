@@ -32,6 +32,16 @@ describe("name tags beside the street", () => {
     expect(width(cut)).toBeLessThanOrEqual(190);
   });
 
+  it("tighten the separators before cutting, and keep a narrow tag's distance rather than its end", () => {
+    // 6 px a character: 19 characters do not fit 105 px, 17 do.
+    expect(fitText("✦ FLAGSHIP · ≈9 MIN", 105, (t) => measure(t, 10))).toBe("✦ FLAGSHIP·≈9 MIN");
+    // Beside the street on the right, 119 px for the text: the reason goes, the walk stays.
+    const [narrow] = layoutLabels([{ ...tag("right", 182, 300), detail: "✦ WELL KNOWN · ≈16 MIN", short: "✦ ≈16 MIN" }], measure, area, straight);
+    expect(narrow.detail).toBe("✦ ≈16 MIN");
+    const [roomy] = layoutLabels([{ ...tag("right", 182, 300), detail: "✦ ICONIC · ≈9 MIN", short: "✦ ≈9 MIN" }], measure, area, straight);
+    expect(roomy.detail).toBe("✦ ICONIC · ≈9 MIN");
+  });
+
   it("wrap a long name onto two lines, carrying whole words, and cut only what is left over", () => {
     const width = (t: string) => measure(t, 13);
     expect(wrapText("Short", 120, width)).toEqual(["Short"]);

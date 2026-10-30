@@ -1,4 +1,4 @@
-/** The photo as Meta's models get it: 1024 px on the long side is plenty to read a building or a sign. */
+/** The photo as Meta's models get it: 1024 px on the long side is plenty to read a sign. */
 export function modelCanvas(photo: HTMLCanvasElement, longSide = 1024): HTMLCanvasElement {
   const scale = Math.min(1, longSide / Math.max(photo.width, photo.height));
   const c = document.createElement("canvas");

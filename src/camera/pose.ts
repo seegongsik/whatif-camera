@@ -1,36 +1,17 @@
 /**
- * The pinhole camera that took the photo, in local east-north-up metres.
- *
- * Orientation is heading (compass bearing of the optical axis, clockwise from
- * north), pitch (elevation of the optical axis, up positive) and roll (rotation
- * about the optical axis, positive when the right side of the picture dips).
- * Pixels run right (u) and down (v) from the top-left corner.
+ * Which way the phone's camera points, from the browser's device orientation,
+ * in local east-north-up axes: heading (compass bearing of the optical axis,
+ * clockwise from north), pitch (elevation of the optical axis, up positive)
+ * and roll (rotation about the optical axis, positive when the right side of
+ * the picture dips).
  */
 import type { ENU } from "../geo/enu.js";
 
 export type Orientation = { headingDeg: number; pitchDeg: number; rollDeg: number };
 
-export type Intrinsics = {
-  width: number;
-  height: number;
-  /** Focal length in pixels (square pixels). */
-  focalPx: number;
-  cx: number;
-  cy: number;
-};
-
-export type CameraPose = {
-  position: ENU;
-  orientation: Orientation;
-  intrinsics: Intrinsics;
-};
-
 export type Basis = { right: ENU; up: ENU; forward: ENU };
 
 const DEG = Math.PI / 180;
-
-/** Diagonal of the 36 × 24 mm frame that "35 mm equivalent" focal lengths refer to. */
-export const FULL_FRAME_DIAGONAL_MM = Math.hypot(36, 24);
 
 export function dot(a: ENU, b: ENU): number {
   return a.x * b.x + a.y * b.y + a.z * b.z;
@@ -129,69 +110,3 @@ export function alphaForCompassHeading(betaDeg: number, gammaDeg: number, compas
   return alpha < 0 ? alpha + 360 : alpha;
 }
 
-/** Field of view across the longer side of the picture. */
-export function intrinsicsFromLongSideFov(width: number, height: number, fovLongDeg: number): Intrinsics {
-  if (!(width > 0 && height > 0 && fovLongDeg > 1 && fovLongDeg < 170)) {
-    throw new RangeError("image size must be positive and the field of view between 1° and 170°");
-  }
-  const focalPx = Math.max(width, height) / 2 / Math.tan((fovLongDeg * DEG) / 2);
-  return { width, height, focalPx, cx: width / 2, cy: height / 2 };
-}
-
-/** From a 35 mm equivalent focal length (EXIF FocalLengthIn35mmFilm), matched on the diagonal. */
-export function intrinsicsFrom35mm(width: number, height: number, focal35mm: number): Intrinsics {
-  if (!(width > 0 && height > 0 && focal35mm > 1)) {
-    throw new RangeError("image size and focal length must be positive");
-  }
-  const focalPx = (focal35mm * Math.hypot(width, height)) / FULL_FRAME_DIAGONAL_MM;
-  return { width, height, focalPx, cx: width / 2, cy: height / 2 };
-}
-
-export function longSideFovDeg(intrinsics: Intrinsics): number {
-  return (2 * Math.atan(Math.max(intrinsics.width, intrinsics.height) / 2 / intrinsics.focalPx)) / DEG;
-}
-
-export function verticalFovDeg(intrinsics: Intrinsics): number {
-  return (2 * Math.atan(intrinsics.height / 2 / intrinsics.focalPx)) / DEG;
-}
-
-export function horizontalFovDeg(intrinsics: Intrinsics): number {
-  return (2 * Math.atan(intrinsics.width / 2 / intrinsics.focalPx)) / DEG;
-}
-
-/** Unit direction (east-north-up) of the ray through pixel (u, v). */
-export function pixelRay(orientation: Orientation, intrinsics: Intrinsics, u: number, v: number): ENU {
-  const b = basisFromOrientation(orientation);
-  const x = (u - intrinsics.cx) / intrinsics.focalPx;
-  const y = -(v - intrinsics.cy) / intrinsics.focalPx;
-  return normalize({
-    x: b.forward.x + b.right.x * x + b.up.x * y,
-    y: b.forward.y + b.right.y * x + b.up.y * y,
-    z: b.forward.z + b.right.z * x + b.up.z * y,
-  });
-}
-
-export type Projected = { u: number; v: number; depth: number };
-
-/** Pixel of a world point, or null when it is behind the camera. */
-export function projectPoint(pose: CameraPose, p: ENU): Projected | null {
-  const b = basisFromOrientation(pose.orientation);
-  const rel = { x: p.x - pose.position.x, y: p.y - pose.position.y, z: p.z - pose.position.z };
-  const depth = dot(rel, b.forward);
-  if (depth <= 1e-6) return null;
-  const { focalPx, cx, cy } = pose.intrinsics;
-  return {
-    u: cx + (focalPx * dot(rel, b.right)) / depth,
-    v: cy - (focalPx * dot(rel, b.up)) / depth,
-    depth,
-  };
-}
-
-/** Bearing (clockwise from north) and elevation of a direction, in degrees. */
-export function bearingElevation(dir: ENU): { bearingDeg: number; elevationDeg: number } {
-  const bearing = Math.atan2(dir.x, dir.y) / DEG;
-  return {
-    bearingDeg: bearing < 0 ? bearing + 360 : bearing,
-    elevationDeg: Math.atan2(dir.z, Math.hypot(dir.x, dir.y)) / DEG,
-  };
-}

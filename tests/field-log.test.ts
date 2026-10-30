@@ -13,9 +13,6 @@ const capture: CaptureMeta = {
   headingSource: "compass",
   pitchDeg: -1.2,
   rollDeg: 0.4,
-  tiltSource: "gravity sensor",
-  fovLongDeg: 67,
-  fovSource: "assumption",
   takenAt: "2026-10-29T03:14:15.000Z",
   raw: { alpha: 287.7, beta: 88.4, gamma: 0.2, absolute: true, screenAngle: 0 },
 };

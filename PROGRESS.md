@@ -1,5 +1,21 @@
 # PROGRESS
 
+## 2026-10-30 (KST) · 4일 차 ⑤: 레포를 What's Ahead 하나로 (D41)
+- 민우: 「README나 공개 레포의 겉모습이 지금 제품 컨셉과 전혀 다름, 브레인스토밍 단계의 잔재가 남아 있음」. 건물 시제품 코드(레포의 약 40%, three.js를 모든 방문자가 내려받음)를 어떻게 할지 물음 → 「완전히 삭제」.
+- 한 것: 건물 모드 전부 삭제(코드, 테스트 56개, three.js, 프리셋, 건물 스크린샷, CSS 37규칙), 길 찾기가 쓰던 것은 `server/upstream.ts`로, README·CLAUDE.md·`.env.example`을 What's Ahead만으로, `index.html`에 설명·Open Graph·Twitter 카드와 미리보기 그림 `public/og.jpg`, `package.json`에 설명·홈페이지.
+- 확인: `npm test` 145개 통과(실호출 11개 건너뜀), lint·build·check:api 통과. JS 821 kB → 135 kB(gzip 231 → 49 kB).
+- 민우가 할 것(확인 필요): GitHub 저장소 About의 설명·웹사이트·주제(제안 문구는 PR #22), Settings → Social preview에 `public/og.jpg`.
+
+## 2026-10-30 (KST) · 4일 차 ④: 심사 준비 (D37~D40)
+- 민우: 입상 가능성 재검토 뒤 「2, 3, 4 진행」. 심사관은 많지 않고 레포를 AI로 훑은 뒤 유망한 레포의 데모 영상만 볼 것 → 레포에 기술력·AI가 눈에 띄게, 하단 데모 거리는 완벽하게, 인스타·페이스북 인앱은 나중(Meta 개발자 몫), 크롬·엣지에서 잘 돌아가면 됨, GPS를 꺼 둔 개발자가 「이거 뭐야? 안 되네」 하고 버리지 않게 권한 요청과 피드백.
+- 만든 것:
+  - 퀘스트(D37): Muse Spark가 장소 이름을 봄(D12 뒤집음). 길 이름·위치(약 1 km), 랜드마크·칩의 이름난 곳은 known 표시로 길 어디에 있든 목록에. 글 검사 강화(문장 안 대문자 단어, 라틴 문자 아닌 글자, 목록 이름의 고유 단어로 시작하는 문장, 제목의 고유 단어).
+  - 데모 거리 즉시(D38): 길은 CDN 하루+묵은 것 일주일(stale-while-revalidate), 랜드마크는 데모 거리용 GET `/api/landmarks?demo=<id>`(길과 동시에 요청, CDN에 둠, 후보 400곳), `/?street=fifth-avenue` 링크, `npm run check:demo`(데모 9곳 실서버 확인 겸 CDN 예열).
+  - 레포·홈(D39): 홈의 건물 모드 링크 뺌, README 맨 위 요약(데모 바로가기, 실서버 5번가 화면 세 장, 한눈에 보기 표, Mermaid 흐름도). 좁은 이름표에서 걷는 시간이 잘리던 것 고침.
+  - 권한 피드백(D40): Mac·Windows의 크롬·엣지·사파리, 안드로이드별 문구(사이트 권한, 그다음 시스템 설정), 「카메라 여는 중, 물으면 허용」 화면, 묻는 중 안내, 위치가 막히면 「Fly down {데모 거리}」·「Use a photo」.
+- 확인: `npm test` 201개 통과(실호출 11개 건너뜀), lint·build·check:api 통과. 헤드리스 크롬(개발 서버, 길은 실서버 5번가 응답으로 흉내): `?street=fifth-avenue`가 랜드마크 GET을 길보다 먼저 보냄, 퀘스트 요청에 이름 60곳·「5th Avenue」·40.75,-73.98·known(Tiffany, Apple), 위치 막힘·대략적 위치(±3.2 km)·카메라 없음·묻는 중(2초 「물으면 허용」, 10초 「아직 위치 없음」+대안 버튼) 화면.
+- 확인 필요(머지 뒤 실서버): `npm run check:demo`로 데모 9곳(400곳 후보의 응답 시간, Stonewall Inn·Village Vanguard가 뽑히는지)과 CDN 예열, 새 퀘스트 프롬프트로 실제 퀘스트(줄이 기본 문구로 바뀌는 비율), `?street=` 링크. 저장소 About 문구는 민우가 GitHub에서.
+
 ## 2026-10-30 (KST) · 4일 차 ③: PR #20 머지 뒤 실서버 (D36)
 - PR #20 머지(민우 「머지해줘」). 실서버 데모 거리 9곳(새 프롬프트, 캐시 없는 첫 호출):
   - 5번가: Louis Vuitton(flagship) · Cartier Fifth Avenue Mansion · Tiffany · Apple Fifth Avenue · The Met · 구겐하임. 763곳 모두(첫 1 km 551곳).

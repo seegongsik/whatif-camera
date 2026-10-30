@@ -143,24 +143,6 @@ main.home h1 {
   margin-bottom: 24px;
 }
 
-.preset-list {
-  list-style: none;
-  padding: 0;
-  margin: 16px 0;
-}
-
-.preset-list a {
-  display: block;
-  padding: 12px 14px;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  margin-bottom: 8px;
-  color: var(--ink);
-  font-weight: 600;
-  text-decoration: none;
-}
-
 .center {
   display: flex;
   flex-direction: column;
@@ -233,6 +215,20 @@ main.camera video {
   padding: 10px 12px;
 }
 
+/* Under the advice: a demo street or a photo, so a refused location is not a dead end. */
+.camera-ways {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.camera-ways button {
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
 /* Opened inside a chat or social app's browser. */
 .in-app {
   margin: 16px 0;
@@ -290,90 +286,6 @@ main.camera video {
   padding: 0;
 }
 
-/* Top view */
-.topview-holder {
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  overflow: hidden;
-}
-
-.topview {
-  display: block;
-  width: 100%;
-  height: auto;
-  aspect-ratio: 1;
-  touch-action: manipulation;
-}
-
-.tv-bg {
-  fill: #fbfaf7;
-}
-
-.tv-fp {
-  fill: #e4e0d8;
-  stroke: #b9b3a7;
-  stroke-width: 0.6;
-  cursor: pointer;
-}
-
-.tv-candidate {
-  fill: #ffe2d3;
-  stroke: #f2a37e;
-}
-
-.tv-selected {
-  fill: var(--accent);
-  stroke: #a33a0c;
-  stroke-width: 1;
-}
-
-.tv-cone {
-  fill: rgba(255, 106, 43, 0.12);
-  stroke: rgba(255, 106, 43, 0.6);
-  stroke-width: 0.6;
-  pointer-events: none;
-}
-
-.tv-refined-cone {
-  fill: rgba(79, 138, 60, 0.12);
-  stroke: rgba(79, 138, 60, 0.7);
-  stroke-dasharray: 2 2;
-}
-
-.tv-accuracy {
-  fill: rgba(35, 110, 220, 0.1);
-  stroke: rgba(35, 110, 220, 0.45);
-  stroke-width: 0.6;
-  pointer-events: none;
-}
-
-.tv-camera {
-  fill: #236edc;
-  stroke: #fff;
-  stroke-width: 1;
-}
-
-.tv-refined {
-  fill: var(--green);
-  stroke: #fff;
-  stroke-width: 1;
-}
-
-.tv-north {
-  fill: var(--ink);
-}
-
-.tv-label {
-  font-size: 7px;
-  fill: var(--ink);
-  font-weight: 700;
-}
-
-.tv-scale {
-  fill: var(--ink);
-}
-
 /* Marking */
 .marker {
   position: relative;
@@ -382,76 +294,6 @@ main.camera video {
   background: #000;
   user-select: none;
   -webkit-user-select: none;
-}
-
-.marker-photo {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-
-.marker-overlay {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  touch-action: none;
-}
-
-.mk-line {
-  stroke: #fff;
-  stroke-linecap: round;
-  opacity: 0.9;
-}
-
-.mk-roof,
-.mk-ground {
-  stroke: var(--accent);
-}
-
-.mk-hidden {
-  stroke-dasharray: 12 10;
-}
-
-.mk-edge {
-  stroke: #fff;
-  stroke-dasharray: 10 8;
-}
-
-.mk-near {
-  stroke: #9fd28a;
-  stroke-dasharray: 6 8;
-}
-
-.mk-ring {
-  fill: rgba(255, 106, 43, 0.18);
-  stroke: #fff;
-}
-
-.mk-nearCorner .mk-ring {
-  fill: rgba(79, 138, 60, 0.25);
-}
-
-.mk-dot {
-  fill: #fff;
-}
-
-.mk-label {
-  fill: #fff;
-  stroke: rgba(0, 0, 0, 0.6);
-  paint-order: stroke;
-  font-weight: 700;
-}
-
-.loupe {
-  position: absolute;
-  display: none;
-  width: 96px;
-  height: 96px;
-  border-radius: 50%;
-  border: 3px solid #fff;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
-  pointer-events: none;
 }
 
 .check {
@@ -495,54 +337,6 @@ main.camera video {
   background: var(--card);
 }
 
-/* Result */
-.stage {
-  display: flex;
-  justify-content: center;
-}
-
-.stage canvas {
-  width: auto;
-  height: min(72vh, 900px);
-  max-width: 100%;
-  aspect-ratio: 9 / 16;
-  border-radius: 18px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
-  background: #000;
-}
-
-.scrub {
-  width: 100%;
-  margin: 14px 0 4px;
-  accent-color: var(--accent);
-}
-
-.downloads {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.panel {
-  margin-top: 20px;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 4px 16px 16px;
-}
-
-.panel h3 {
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted);
-  margin: 18px 0 8px;
-}
-
-.facts {
-  margin: 0;
-}
-
 .fact {
   display: grid;
   grid-template-columns: 9.5em 1fr;
@@ -567,18 +361,6 @@ main.camera video {
   color: var(--muted);
   font-size: 0.78rem;
   margin-top: 2px;
-}
-
-.assumptions {
-  margin: 0;
-  padding-left: 18px;
-  color: #3d3a35;
-  font-size: 0.9rem;
-  line-height: 1.5;
-}
-
-.plan-note {
-  font-weight: 600;
 }
 
 /* ----- Street ahead: the show on black ----- */
@@ -1018,7 +800,6 @@ main.show {
   font-size: 13.5px;
   color: rgba(255, 255, 255, 0.86);
 }
-
 
 .show-bar-part {
   min-width: 2px;

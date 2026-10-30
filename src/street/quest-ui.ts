@@ -4,10 +4,13 @@
  */
 import { h } from "../ui/dom.js";
 import type { ShopAhead } from "./ahead.js";
-import { localQuest, QUEST_THEMES, questPlaces, type Quest, type QuestPlace, type QuestTheme } from "./quest.js";
+import { localQuest, QUEST_MAX_AHEAD_M, QUEST_THEMES, questPlaces, type Quest, type QuestPlace, type QuestTheme } from "./quest.js";
 import { CATEGORY_STYLE, distanceText } from "./signs.js";
 
 export type QuestOutcome = { quest: Quest; note: string };
+
+/** The street a quest is on, for the model: its name, where it is (to about a kilometre) and the places Muse Spark already named on it. */
+export type QuestContext = { street?: string; near?: { lat: number; lon: number }; known: ReadonlySet<string> };
 
 const DAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
@@ -18,18 +21,23 @@ export function localTimeText(d = new Date()): string {
 }
 
 /** Muse Spark Open through /api/quest; the app's own pick when the server cannot answer. Null when the street has too few fitting places. */
-export async function requestQuest(places: QuestPlace[], theme: QuestTheme, fetchImpl: typeof fetch = fetch): Promise<QuestOutcome | null> {
+export async function requestQuest(
+  places: QuestPlace[],
+  theme: QuestTheme,
+  where: { street?: string; near?: { lat: number; lon: number } } = {},
+  fetchImpl: typeof fetch = fetch,
+): Promise<QuestOutcome | null> {
   let reason: string;
   try {
     const res = await fetchImpl("/api/quest", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ theme, places, localTime: localTimeText() }),
+      body: JSON.stringify({ theme, places, localTime: localTimeText(), ...where }),
     });
     const body = (await res.json().catch(() => ({}))) as { quest?: Quest; latencyMs?: number; error?: string };
     if (res.ok && body.quest) {
       const seconds = Math.round((body.latencyMs ?? 0) / 100) / 10;
-      return { quest: body.quest, note: `Stops picked by Muse Spark Open in ${seconds} s. It was told the kinds of places, not their names.` };
+      return { quest: body.quest, note: `Stops picked by Muse Spark Open in ${seconds} s. Names, sides and distances are the map's, not the model's.` };
     }
     reason = body.error ?? `the quest service answered ${res.status}`;
   } catch (error) {
@@ -43,10 +51,13 @@ export class QuestSheet {
   readonly element: HTMLElement;
   private readonly shops: ShopAhead[];
   private readonly onStart: (quest: Quest, stops: ShopAhead[]) => void;
+  private readonly context: () => QuestContext;
 
-  constructor(shops: ShopAhead[], onStart: (quest: Quest, stops: ShopAhead[]) => void) {
+  /** `context`: read when a quest is asked for, so the places Muse Spark named after the street came in count too. */
+  constructor(shops: ShopAhead[], onStart: (quest: Quest, stops: ShopAhead[]) => void, context: () => QuestContext = () => ({ known: new Set() })) {
     this.shops = shops;
     this.onStart = onStart;
+    this.context = context;
     this.element = h("div", { class: "street-sheet hidden" });
   }
 
@@ -64,7 +75,7 @@ export class QuestSheet {
       h("h3", { text: "Make a quest" }),
       h("p", {
         class: "muted small",
-        text: "Muse Spark Open picks two to four stops along this street for a theme. It is told the kinds of places and their hours, never their names: names, sides and distances come from the map.",
+        text: "Muse Spark Open picks two to four stops along this street for a theme, the places it knows by name first, and writes a line for each. Names, sides and distances come from the map; its own words are checked for names and numbers.",
       }),
       h(
         "div",
@@ -77,7 +88,8 @@ export class QuestSheet {
 
   private async make(theme: QuestTheme): Promise<void> {
     this.element.replaceChildren(h("div", { class: "spinner" }), h("p", { class: "center-text", text: `Muse Spark is planning “${QUEST_THEMES[theme].label}”…` }));
-    const outcome = await requestQuest(questPlaces(this.shops), theme);
+    const { known, ...where } = this.context();
+    const outcome = await requestQuest(questPlaces(this.shops, QUEST_MAX_AHEAD_M, known), theme, where);
     if (!outcome) {
       this.element.replaceChildren(
         h("p", { text: "This street has too few places of the right kinds for that theme. Try another one." }),

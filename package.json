@@ -2,6 +2,8 @@
   "name": "whatif-camera",
   "private": true,
   "version": "0.1.0",
+  "description": "What's Ahead: one photo of a street, and the next 5 km of it on your phone, with Meta's Muse Spark Open and SAM 3.1 on OpenStreetMap and Overture Maps.",
+  "homepage": "https://whatif-camera.vercel.app",
   "type": "module",
   "license": "UNLICENSED",
   "engines": {
@@ -13,17 +15,16 @@
     "preview": "vite preview --host",
     "test": "vitest run",
     "lint": "eslint .",
-    "check:api": "node scripts/check-api.mjs"
+    "check:api": "node scripts/check-api.mjs",
+    "check:demo": "DEMO_LIVE=${DEMO_LIVE:-1} vitest run tests/demo-live.test.ts"
   },
   "dependencies": {
     "@meta-sam/parser": "0.1.0",
-    "hyparquet": "1.31.3",
-    "three": "^0.186.1"
+    "hyparquet": "1.31.3"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.6.5",
-    "@types/three": "^0.186.0",
     "eslint": "^10.13.0",
     "globals": "^17.13.0",
     "typescript": "^6.0.3",

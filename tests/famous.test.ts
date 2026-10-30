@@ -21,6 +21,12 @@ describe("famous streets to fly down", () => {
     expect(orderForZone(FAMOUS_STREETS, undefined)).toEqual(FAMOUS_STREETS);
   });
 
+  it("each have an id fit for a link", () => {
+    const ids = FAMOUS_STREETS.map((s) => s.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids.every((id) => /^[a-z0-9-]{1,40}$/.test(id))).toBe(true);
+  });
+
   it("offer the nearest one, unless you stand on it", () => {
     // Meta's campus in Menlo Park: Market Street in San Francisco is the nearest.
     expect(nearestStreet(FAMOUS_STREETS, { lat: 37.4848, lon: -122.1484 })?.short).toBe("Market Street, San Francisco");

@@ -35,6 +35,8 @@ export type LabelInput<T = unknown> = {
   name: string;
   /** The second line: distance and kind. */
   detail: string;
+  /** What a narrow tag keeps of the second line when all of it does not fit (the distance), rather than cutting the end off. */
+  short?: string;
   item: T;
   /** Font size of the name, CSS pixels; padding keeps its proportion to it. */
   font: number;
@@ -50,9 +52,11 @@ export type Area = { left: number; top: number; right: number; bottom: number; b
 const overlaps = (a: Box, b: Box, margin = 3) =>
   a.x < b.x + b.w + margin && b.x < a.x + a.w + margin && a.y < b.y + b.h + margin && b.y < a.y + a.h + margin;
 
-/** Cuts a text to fit `maxPx`, with an ellipsis. */
+/** Cuts a text to fit `maxPx`, with an ellipsis; the spaces around " · " go first. */
 export function fitText(text: string, maxPx: number, width: (text: string) => number): string {
   if (width(text) <= maxPx) return text;
+  const tight = text.replace(/ · /g, "·");
+  if (width(tight) <= maxPx) return tight;
   let cut = text;
   while (cut.length > 1 && width(`${cut}…`) > maxPx) cut = cut.slice(0, -1);
   return `${cut.trimEnd()}…`;
@@ -202,7 +206,9 @@ export function layoutLabels<T>(
     const detailFont = Math.round(input.font * 0.8);
     // As many lines as the column made room for; cut more if this height has less room.
     const lines = wrapText(input.name, maxText, nameWidth(input), Math.max(1, Math.round((h - heightOf(input, unit, 0)) / (input.font * 1.2))));
-    const detail = fitText(input.detail, maxText, (t) => measure(t, detailFont, false));
+    const detailWidth = (t: string) => measure(t, detailFont, false);
+    const whole = fitText(input.detail, maxText, detailWidth);
+    const detail = input.short && whole.endsWith("…") ? fitText(input.short, maxText, detailWidth) : whole;
     const w = fixedOf(input, unit) + Math.max(measure(detail, detailFont, false), ...lines.map((l) => measure(l, input.font, true)));
     const box: Box = { x: input.side === "left" ? inner - w : inner, y, w, h };
     return { ...box, label: { ...input, name: lines.join(" "), detail, box, lines } };

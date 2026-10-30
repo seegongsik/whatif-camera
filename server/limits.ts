@@ -12,16 +12,15 @@ function today(now: number): string {
   return new Date(now).toISOString().slice(0, 10);
 }
 
-export type CallKind = "footprints" | "spark" | "street" | "sam";
+export type CallKind = "spark" | "street" | "sam";
 
 const CAP_ENV: Record<CallKind, string> = {
-  footprints: "DAILY_FOOTPRINT_CALL_CAP",
   spark: "DAILY_SPARK_CALL_CAP",
   street: "DAILY_STREET_CALL_CAP",
   sam: "DAILY_SAM_CALL_CAP",
 };
 // SAM 3.1 is billed per image ($2.50 per 1,000 images at the time of writing).
-const CAP_DEFAULT: Record<CallKind, number> = { footprints: 2000, spark: 300, street: 2000, sam: 1000 };
+const CAP_DEFAULT: Record<CallKind, number> = { spark: 300, street: 2000, sam: 1000 };
 
 export function capFor(name: CallKind, env: EnvMap = process.env): number {
   const raw = env[CAP_ENV[name]];

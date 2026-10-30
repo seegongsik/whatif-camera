@@ -32,8 +32,15 @@ export type Picks = {
   best: Partial<Record<GroupKey, string[]>>;
 };
 
-/** At most this many places go to the model: a street can hold 400. */
+/** At most this many places go to the model: a street can hold 800. */
 export const PICK_MAX_PLACES = 200;
+/**
+ * For a demo street, asked once and then kept by the CDN, the model reads
+ * twice as many: the time matters less there than finding the one famous
+ * bar among hundreds (the share of a busy street it read before a street
+ * could hold 800 places).
+ */
+export const PICK_DEMO_MAX_PLACES = 400;
 /** Fewer places than this and there is nothing to pick from (a quiet country road): the map's ranking is enough. */
 export const PICK_MIN_PLACES = 8;
 /** How many landmarks the model may name, before they are spaced along the street. */
@@ -42,6 +49,16 @@ export const PICK_MAX_LANDMARKS = 12;
 export const PICK_MAX_BEST = 6;
 
 const GROUP_KEYS = new Set<string>(GROUPS.map((g) => g.key));
+
+/** Every place the model named, as a landmark or among the best known of a chip. */
+export function knownIds(picks: Picks): Set<string> {
+  return new Set([...picks.landmarks.map((l) => l.id), ...Object.values(picks.best).flatMap((ids) => ids ?? [])]);
+}
+
+/** A position to two decimals (about a kilometre): enough for the model to tell the city, and all a question to it carries. */
+export function roughPosition(p: { lat: number; lon: number }): { lat: number; lon: number } {
+  return { lat: Math.round(p.lat * 100) / 100, lon: Math.round(p.lon * 100) / 100 };
+}
 
 export function isGroupKey(value: unknown): value is GroupKey {
   return typeof value === "string" && GROUP_KEYS.has(value);

@@ -1,11 +1,10 @@
 /**
- * Building footprints from a Mapbox Vector Tile (spec 2.1), as served by
- * OpenMapTiles-schema tile servers: the "building" layer, polygons in tile
- * coordinates, and render_height. A small protobuf reader covers the few
+ * Reads a Mapbox Vector Tile (spec 2.1), as served by OpenMapTiles-schema
+ * tile servers (OpenFreeMap): layers, features with their properties, and
+ * geometry in tile coordinates. A small protobuf reader covers the few
  * message types the format uses.
  */
 import type { LatLon } from "../geo/enu.js";
-import type { FootprintRecord } from "./footprints.js";
 
 class Reader {
   pos = 0;
@@ -133,42 +132,6 @@ function zigzag(n: number): number {
   return n % 2 === 0 ? n / 2 : -(n + 1) / 2;
 }
 
-/** Polygon rings in tile coordinates; exterior rings come out with positive area (clockwise with y down). */
-export function polygonRings(geometry: number[]): { x: number; y: number }[][] {
-  const rings: { x: number; y: number }[][] = [];
-  let ring: { x: number; y: number }[] = [];
-  let x = 0;
-  let y = 0;
-  let i = 0;
-  while (i < geometry.length) {
-    const command = geometry[i++];
-    const id = command & 0x7;
-    const count = Math.floor(command / 8);
-    if (id === 1 || id === 2) {
-      for (let k = 0; k < count && i + 1 < geometry.length; k += 1) {
-        x += zigzag(geometry[i++]);
-        y += zigzag(geometry[i++]);
-        if (id === 1) ring = [{ x, y }];
-        else ring.push({ x, y });
-      }
-    } else if (id === 7) {
-      if (ring.length >= 3) rings.push(ring);
-      ring = [];
-    } else break;
-  }
-  return rings;
-}
-
-function ringArea(ring: { x: number; y: number }[]): number {
-  let sum = 0;
-  for (let i = 0; i < ring.length; i += 1) {
-    const a = ring[i];
-    const b = ring[(i + 1) % ring.length];
-    sum += a.x * b.y - b.x * a.y;
-  }
-  return sum / 2;
-}
-
 export function tileToLatLon(z: number, tx: number, ty: number, px: number, py: number, extent: number): LatLon {
   const n = 2 ** z;
   const xf = (tx + px / extent) / n;
@@ -220,33 +183,4 @@ export function geometryParts(geometry: number[]): { x: number; y: number }[][] 
     } else if (id !== 7) break;
   }
   return parts;
-}
-
-/** render_height the OpenMapTiles schema fills in when a building has no height or levels in OpenStreetMap. */
-export const TILE_DEFAULT_HEIGHT_M = 5;
-
-/** Building footprints of the "building" layer of one tile; multipolygon parts become separate records. */
-export function buildingsFromTile(tile: Uint8Array, z: number, tx: number, ty: number): FootprintRecord[] {
-  const layer = readLayers(tile).find((l) => l.name === "building");
-  if (!layer) return [];
-  const out: FootprintRecord[] = [];
-  layer.features.forEach((f, index) => {
-    if (f.type !== 3) return;
-    const props: Record<string, Value | undefined> = {};
-    for (let k = 0; k + 1 < f.tags.length; k += 2) props[layer.keys[f.tags[k]]] = layer.values[f.tags[k + 1]];
-    // OpenMapTiles writes 5 m when OpenStreetMap has neither height nor levels: that is "unknown".
-    const raw = props.render_height;
-    const height = typeof raw === "number" && raw > 0 && raw !== TILE_DEFAULT_HEIGHT_M ? raw : undefined;
-    let part = 0;
-    for (const ring of polygonRings(f.geometry)) {
-      if (ringArea(ring) <= 0) continue;
-      out.push({
-        id: `tile/${z}/${tx}/${ty}/${index}/${part}`,
-        ring: ring.map((p) => tileToLatLon(z, tx, ty, p.x, p.y, layer.extent)),
-        tags: height !== undefined ? { tileHeightM: height } : {},
-      });
-      part += 1;
-    }
-  });
-  return out;
 }
