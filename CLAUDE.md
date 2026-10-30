@@ -1,6 +1,6 @@
 # Working notes for coding agents
 
-What's Ahead (first named What If Camera, a building prototype removed on 2026-10-30; the repository is `seegongsik/whats-ahead`, the deployment keeps the old name: whatif-camera.vercel.app). Stand on a street and take one photo along it; GPS, compass and the map find the street and the direction; then, as a moving infographic on black, a light runs 5 km down the street dotting every place at its distance and side and stopping at the landmarks Muse Spark knows by name, and each category chip sends it down the street again for that kind of place. Quests, the signs in the photo (SAM 3.1 and Muse Spark), walking the street with the live dot, and nine demo streets from the map alone. Entry for the Meta Global AI Developer Hackathon. Operator: Minwoo Kwon. Read `README.md` for the product, `DECISIONS.md` for why things are the way they are, and the top of `PROGRESS.md` for where work stands.
+What's Ahead (first named What If Camera, a building prototype removed on 2026-10-30; the repository is `seegongsik/whats-ahead`, the deployment whats-ahead.vercel.app; the old address whatif-camera.vercel.app opens the same deployment). Stand on a street and take one photo along it; GPS, compass and the map find the street and the direction; then, as a moving infographic on black, a light runs 5 km down the street dotting every place at its distance and side and stopping at the landmarks Muse Spark knows by name, and each category chip sends it down the street again for that kind of place. Quests, the signs in the photo (SAM 3.1 and Muse Spark), walking the street with the live dot, and nine demo streets from the map alone. Entry for the Meta Global AI Developer Hackathon. Operator: Minwoo Kwon. Read `README.md` for the product, `DECISIONS.md` for why things are the way they are, and the top of `PROGRESS.md` for where work stands.
 
 ## Rules
 
@@ -17,9 +17,9 @@ What's Ahead (first named What If Camera, a building prototype removed on 2026-1
 
 ## Commands
 
-`npm test` · `npm run lint` · `npm run build` (runs `tsc --noEmit` first) · `npm run check:api` (per-file transpile of the Vercel functions) · `npm run check:demo` (opens the nine demo streets on the deployment: checks them and fills the CDN; run after each deployment) · `npm run dev` (`?demo=street` (the SYNTHETIC street), `?street=lat,lon,heading[,name]`, `?street=fifth-avenue` (a demo street's id), `?sam=0`).
+`npm test` · `npm run lint` · `npm run build` (runs `tsc --noEmit` first) · `npm run check:api` (per-file transpile of the Vercel functions) · `npm run check:demo` (opens the nine demo streets at both addresses of the deployment: checks them and fills the CDN, which keeps a cache for each address; run after each deployment) · `npm run dev` (`?demo=street` (the SYNTHETIC street), `?street=lat,lon,heading[,name]`, `?street=fifth-avenue` (a demo street's id), `?sam=0`).
 
-In the Claude Code cloud environment, start the dev server with `NODE_USE_ENV_PROXY=1` so the API routes' own `fetch` goes through the session proxy; each outside host (Overpass, OpenFreeMap, Baseten) must be on the environment's allowed domains. The deployment is https://whatif-camera.vercel.app.
+In the Claude Code cloud environment, start the dev server with `NODE_USE_ENV_PROXY=1` so the API routes' own `fetch` goes through the session proxy; each outside host (Overpass, OpenFreeMap, Baseten) must be on the environment's allowed domains. The deployment is https://whats-ahead.vercel.app (the old https://whatif-camera.vercel.app opens the same deployment).
 
 ## Map
 

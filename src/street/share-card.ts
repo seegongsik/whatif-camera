@@ -97,7 +97,7 @@ export function drawShareCard(input: ShareInput): HTMLCanvasElement {
   // The credits, in full.
   ctx.fillStyle = "rgba(255,255,255,0.6)";
   ctx.font = `500 24px ${SANS}`;
-  const credits = [...wrap(ctx, street.attribution, W - 2 * PAD), "Places change; the map may be out of date.", "What's Ahead · whatif-camera.vercel.app"];
+  const credits = [...wrap(ctx, street.attribution, W - 2 * PAD), "Places change; the map may be out of date.", "What's Ahead · whats-ahead.vercel.app"];
   credits.forEach((line, i) => ctx.fillText(line, PAD, H - 40 - (credits.length - 1 - i) * 34));
   return canvas;
 }

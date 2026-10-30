@@ -364,3 +364,10 @@
   - 원인 2: 테마 설명 「가까이 모인 실내」와 프롬프트 「짧게 걷게」가 출발점 근처만 고르게 함. 테마에 박물관·미술관이 없었음.
 - 정함: known은 Muse Spark가 고른 랜드마크만. 비 오는 날 = 「박물관·미술관, 카페, 서점, 영화관, 실내 시장」. 프롬프트: 정류장끼리 가깝게, 테마에 더 맞는 곳이 길 위쪽에 있으면 거기서 시작해도 됨.
 - 레포 이름: whats-ahead(민우, 공식 규정에 레포 이름 조항이 없음을 확인한 뒤). 커밋 이력·날짜·레포 생성일은 그대로이고, 옛 주소는 GitHub가 새 주소로 넘김(옛 이름으로 새 레포를 만들면 끊김). 배포 주소는 Vercel 프로젝트 이름이라 whatif-camera.vercel.app 그대로.
+
+## D43. 배포 주소 whats-ahead.vercel.app, 옛 주소도 같은 배포 (민우 2026-10-30 「vercel에 등록되어 있는 주소를 바꾸려면」 → Domains에 새 주소 추가)
+- 정함(민우): Vercel 프로젝트(이름은 whatif-camera 그대로)의 Settings → Domains에 whats-ahead.vercel.app을 Production으로 추가하고, 옛 whatif-camera.vercel.app도 Production으로 남김. 옛 주소는 제출 양식·녹화 영상·이미 퍼진 공유 카드에 있을 수 있어 지우지 않음(Edit에서 이름을 고쳐 쓰면 옛 주소가 끊김). 제출 양식에 적힌 주소는 확인 필요.
+- 실측(PR #23 배포): 두 주소 모두 페이지·`?street=fifth-avenue`·`/api/street`가 200. CDN 캐시는 주소마다 따로: 같은 5번가 `/api/street`가 옛 주소에서는 HIT, 새 주소에서는 처음 MISS였다가 다시 물으면 HIT. 그래서 `npm run check:demo`(DEMO_LIVE=1)가 두 주소를 모두 엶(9곳 × 2). 채운 뒤에는 두 주소 9곳 모두 HIT, 길 0.03~0.24초, 랜드마크 0.03~0.2초.
+- 새 주소로 바꾼 곳: `index.html`의 og:url·og:image, `package.json` homepage, 공유 카드 맨 아래 줄, README 링크, CLAUDE.md, `tests/help.test.ts`의 예시 주소. 미리보기 그림 `public/og.jpg`는 주소 줄만 다시 그림: 원래 줄에 맞춰 찾은 같은 글꼴(앱의 고정폭 글꼴, 이 환경에서는 DejaVu Sans Mono 19.2px 굵게), 같은 색(rgb(173,184,188), 바로 위 줄과 같음), 같은 자리. 원래 JPEG 양자화 표로 다시 저장(나머지 픽셀 평균 차이 0.24단계). 데모 영상에는 주소가 나오지 않아 그대로.
+- `check:demo`에 `--silent=false`: 이 vitest(5.0.5)는 통과한 테스트의 출력(길마다 시간과 HIT/MISS)을 보여 주지 않았음.
+- 그대로 둔 것: Vercel 프로젝트 이름(바꾸면 대시보드 이름과 미리보기 URL만 바뀌고, Git 자동 배포는 프로젝트 ID로 묶임). 옛 주소를 새 주소로 넘기는 리다이렉트(하려면 Domains에서 옛 주소 Edit → 308로 넘기기, 그 뒤 `?street=` 쿼리가 따라가는지 확인). 지난 DECISIONS·PROGRESS의 옛 주소.
