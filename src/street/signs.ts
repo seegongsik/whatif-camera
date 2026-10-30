@@ -19,6 +19,22 @@ export const CATEGORY_STYLE: Record<ShopCategory, { color: string; word: string;
 };
 
 /** "120 m" up to a kilometre, then "1.4 km". */
+/** A walking pace, metres per second (about 5 km/h). */
+export const WALK_MPS = 1.4;
+/** Up to here a place is given as minutes on foot; farther, most people would ride, so as a distance. */
+export const WALK_MINUTES_UP_TO_M = 2000;
+
+/** Minutes on foot, an estimate: at least one. */
+export function walkMinutes(m: number): number {
+  return Math.max(1, Math.round(m / (WALK_MPS * 60)));
+}
+
+/** How far a place is, for a tag: "≈6 min" on foot up to 2 km, then "2.4 km"; "here" at the spot. */
+export function walkText(m: number): string {
+  if (m < 0) return "here";
+  return m <= WALK_MINUTES_UP_TO_M ? `≈${walkMinutes(m)} min` : distanceText(m);
+}
+
 export function distanceText(m: number): string {
   if (m < 0) return "here";
   if (m < 1000) return `${Math.max(10, Math.round(m / 10) * 10)} m`;

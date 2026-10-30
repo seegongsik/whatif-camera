@@ -210,10 +210,10 @@ describe("street lookup (SYNTHETIC)", () => {
     expect(street.source).toContain("places: Overture Maps (release 2026-10-21.0)");
     expect(street.attribution).toContain("Overture Maps Foundation");
     expect(street.shops.every((s) => s.id.startsWith("ovt/0/0/") && s.id !== "ovt/0/0/far")).toBe(true);
-    // More places than a phone should draw: the most certain ones, then those with a Facebook page.
-    expect(street.shops).toHaveLength(MAX_PLACES);
-    expect(street.placesFound).toBe(600);
-    expect(street.shops.filter((s) => (s.confidence ?? 0) > 0.9)).toHaveLength(200);
+    // Fewer than a street keeps: every one of them, in order along the street.
+    expect(MAX_PLACES).toBeGreaterThan(600);
+    expect(street.shops).toHaveLength(600);
+    expect(street.placesFound).toBeUndefined();
     expect(street.shops.every((s, i) => i === 0 || s.s >= street.shops[i - 1].s)).toBe(true);
     expect(street.notes).toBeUndefined();
   });

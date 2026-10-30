@@ -41,8 +41,14 @@ const OVERPASS_BUDGET_MS = 20_000;
  * 2026-10-30, all of it spent waiting for Overpass).
  */
 const OVERPASS_SHORT_BUDGET_MS = 5_000;
-/** The most places one street keeps: a 5 km street in Seoul has well over a thousand, more signs than a phone should draw. */
-export const MAX_PLACES = 400;
+/**
+ * The most places one street keeps: a 5 km street in Tokyo has over two
+ * thousand. The show draws dots, not signs, so 800 is light for a phone,
+ * and enough to keep nearly every place in the first kilometre of the
+ * busiest streets (about 400 to 640 on 7th Avenue, Fifth Avenue, Oxford
+ * Street and Ginza; estimated 2026-10-30) with 200 or more beyond.
+ */
+export const MAX_PLACES = 800;
 export const OVERTURE_ATTRIBUTION = "Places © Overture Maps Foundation (CDLA-Permissive-2.0)";
 
 /** Where to look for places along a street: a box per 250 m, as wide as the street's corridor. */

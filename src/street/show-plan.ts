@@ -201,13 +201,44 @@ export const TOUR_PACE: RunPace = { secondsPerKm: 0.65, minTravel: 1.8, dwell: 0
 const STOP_WIDTH_M = 45;
 const SQRT_PI = Math.sqrt(Math.PI);
 
+/** A stretch of street with no place on it at least this long is empty: the light races across it. */
+export const EMPTY_GAP_M = 500;
+/** Across an empty stretch the light takes this share of its usual time per metre (four times as fast). */
+export const EMPTY_PACE = 0.25;
+/** A street with nothing mapped along its last stretch this long ends, for the show, a little past its last place. */
+export const EMPTY_TAIL_M = 800;
+const PAST_LAST_M = 150;
+
+/**
+ * How far the show goes: the street's length, or a little past its last
+ * place when nothing is mapped along the rest of it (a long tail of houses
+ * or a motorway), so the light does not run on through the empty part.
+ */
+export function showReach(places: readonly { s: number }[], length: number): number {
+  let last = -Infinity;
+  for (const p of places) if (p.s <= length && p.s > last) last = p.s;
+  if (!Number.isFinite(last)) return length;
+  return length - last >= EMPTY_TAIL_M ? Math.min(length, Math.max(0, last) + PAST_LAST_M) : length;
+}
+
+/** The stretches between `from` and `to` with no place on them for EMPTY_GAP_M or more, a little inside each end. */
+export function emptyStretches(places: readonly { s: number }[], from: number, to: number, margin = 80): [number, number][] {
+  const marks = [from, ...places.map((p) => p.s).filter((s) => s > from && s < to).sort((a, b) => a - b), to];
+  const out: [number, number][] = [];
+  for (let i = 1; i < marks.length; i += 1) {
+    if (marks[i] - marks[i - 1] >= EMPTY_GAP_M) out.push([marks[i - 1] + margin, marks[i] - margin]);
+  }
+  return out;
+}
+
 /**
  * A run of light from `from` to `to` that slows down at each stop. Time per
  * metre is flat between stops with a Gaussian bump at each one, sized so
  * that each stop adds `dwell` seconds, and half-bumps at both ends to set
- * off and arrive gently.
+ * off and arrive gently. Across `empty` stretches (no place on them) it
+ * races, easing in and out of the faster pace over 60 m.
  */
-export function lightRun(from: number, to: number, stops: readonly number[], pace: RunPace): LightRun {
+export function lightRun(from: number, to: number, stops: readonly number[], pace: RunPace, empty: readonly [number, number][] = []): LightRun {
   const span = Math.max(1, to - from);
   const travel = Math.max(pace.minTravel, (span / 1000) * pace.secondsPerKm);
   const perM = travel / span;
@@ -216,8 +247,16 @@ export function lightRun(from: number, to: number, stops: readonly number[], pac
   // Half of an end bump lies outside the run, so it is twice as tall.
   const endBump = (2 * pace.ease / perM) / (endWidth * SQRT_PI);
   const inside = stops.filter((s) => s > from && s < from + span);
+  const race = (s: number) => {
+    for (const [a, b] of empty) {
+      if (s <= a || s >= b) continue;
+      const edge = Math.min(1, (s - a) / 60, (b - s) / 60);
+      return 1 - (1 - EMPTY_PACE) * edge * edge * (3 - 2 * edge);
+    }
+    return 1;
+  };
   const density = (s: number) => {
-    let k = 1;
+    let k = race(s);
     for (const stop of inside) k += bump * Math.exp(-(((s - stop) / STOP_WIDTH_M) ** 2));
     k += endBump * (Math.exp(-(((s - from) / endWidth) ** 2)) + Math.exp(-(((s - from - span) / endWidth) ** 2)));
     return k * perM;

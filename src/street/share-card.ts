@@ -21,6 +21,10 @@ const H = 1920;
 const PAD = 72;
 
 export type ShareInput = {
+  /** The landmarks the show named (Muse Spark's, or the map's ranking); the map's ranking when not given. */
+  landmarks?: ShopAhead[];
+  /** How far the show went: a little past the last place when nothing is mapped along the rest of the street. */
+  reach?: number;
   street: StreetAhead;
   photo?: HTMLCanvasElement | null;
   quest?: { quest: Quest; stops: ShopAhead[] } | null;
@@ -82,7 +86,7 @@ export function drawShareCard(input: ShareInput): HTMLCanvasElement {
   ctx.fillText(ellipsize(ctx, name, nameMax), PAD, 222);
   ctx.fillStyle = "rgba(255,255,255,0.72)";
   ctx.font = `600 34px ${MONO}`;
-  ctx.fillText(`${(street.route.length / 1000).toFixed(1)} km · ${street.shops.length} places`, PAD, 284);
+  ctx.fillText(`${((input.reach ?? street.route.length) / 1000).toFixed(1)} km · ${street.shops.length} places`, PAD, 284);
   if (photo) drawPhoto(ctx, photo);
 
   const bottom = quest ? 1160 : 1430;
@@ -124,7 +128,7 @@ function drawStreet(ctx: CanvasRenderingContext2D, input: ShareInput, top: numbe
   const line = sampleRoute(route, 10);
   const view = { width: W, height: H, fovDeg: 50 };
   // With a quest, only as far as its last stop and a little beyond, so the stops stand apart.
-  const limit = quest ? Math.min(route.length, Math.max(600, ...quest.stops.map((s) => s.s + 300))) : Infinity;
+  const limit = quest ? Math.min(route.length, Math.max(600, ...quest.stops.map((s) => s.s + 300))) : (input.reach ?? Infinity);
   const shown = line.points.filter((_, i) => line.along[i] <= limit);
   const step = Math.max(1, Math.floor(shown.length / 120));
   const fitPoints = [...shown.filter((_, i) => i % step === 0), shown[shown.length - 1], { x: 0, y: 0 }];
@@ -202,7 +206,7 @@ function drawStreet(ctx: CanvasRenderingContext2D, input: ShareInput, top: numbe
     }
   }
   if (run.length > 0) road.push(run);
-  const picks = quest ? [...quest.stops].sort((a, b) => a.s - b.s) : pickLandmarks(street.shops, street.route.length, street.name);
+  const picks = quest ? [...quest.stops].sort((a, b) => a.s - b.s) : (input.landmarks ?? pickLandmarks(street.shops, street.route.length, street.name));
   const inputs: LabelInput<TagStyle>[] = [];
   for (const shop of picks) {
     const q = project(dotSpot(route, shop));
@@ -226,11 +230,14 @@ function drawStreet(ctx: CanvasRenderingContext2D, input: ShareInput, top: numbe
     });
   }
   const area = { left: 40, top: top + 10, right: W - 40, bottom: bottom - 10 };
-  const end = project(pointAt(route, route.length).at);
+  const reach = quest ? limit : Math.min(route.length, input.reach ?? route.length);
+  const end = project(pointAt(route, reach).at);
   if (end) {
     const span = roadSpan(road, end.y - 40, end.y + 40);
     const side = area.right - (span?.max ?? end.x) >= (span?.min ?? end.x) - area.left ? "right" : "left";
-    inputs.push({ key: "end", x: end.x, y: end.y, side, priority: 1e9, name: distanceText(route.length), detail: street.route.length < 4990 ? "THE STREET ENDS" : "END OF ROUTE", item: { color: "#ffffff", end: true }, font: 22 });
+    const rest = route.length - reach;
+    const detail = quest ? "QUEST'S END" : rest > 1 ? `THEN ${distanceText(rest).toUpperCase()} WITH NO PLACES` : street.route.length < 4990 ? "THE STREET ENDS" : "END OF ROUTE";
+    inputs.push({ key: "end", x: end.x, y: end.y, side, priority: 1e9, name: distanceText(reach), detail, item: { color: "#ffffff", end: true }, font: 22 });
   }
   const blocked = you ? [{ x: you.x - 24, y: you.y - 18, w: 48, h: 70 }] : [];
   const placed = layoutLabels(inputs, tagMeasure(ctx), { ...area, blocked }, road, 10);
