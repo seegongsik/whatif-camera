@@ -50,9 +50,9 @@ export const PICK_MAX_BEST = 6;
 
 const GROUP_KEYS = new Set<string>(GROUPS.map((g) => g.key));
 
-/** Every place the model named, as a landmark or among the best known of a chip. */
+/** The places the model named as landmarks: what a quest prefers. (A chip's best known can be a chain's branch, when nothing else of its kind is known.) */
 export function knownIds(picks: Picks): Set<string> {
-  return new Set([...picks.landmarks.map((l) => l.id), ...Object.values(picks.best).flatMap((ids) => ids ?? [])]);
+  return new Set(picks.landmarks.map((l) => l.id));
 }
 
 /** A position to two decimals (about a kilometre): enough for the model to tell the city, and all a question to it carries. */

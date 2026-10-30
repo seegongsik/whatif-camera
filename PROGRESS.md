@@ -1,5 +1,15 @@
 # PROGRESS
 
+## 2026-10-30 (KST) · 4일 차 ⑥: PR #22 머지 뒤 실서버, 레포 이름 whats-ahead (D42)
+- PR #22 머지(민우 「#22 우선 머지해줘」). 배포가 바뀐 뒤 `npm run check:demo`:
+  - 9곳 통과. 두 번째 열기부터 CDN에서 옴(HIT): 길 0.04~0.4초, 랜드마크 약 0.04초. 처음 묻는 Muse Spark는 3.0~6.3초(후보 400곳, 200곳 때와 비슷).
+  - 고른 곳: 5번가 Apple Fifth Avenue·메트로폴리탄 미술관 역사 지구·구겐하임·The Plaza·Bergdorf Goodman·Tiffany·Cartier·Louis Vuitton·Gucci·St. Regis. 할리우드 TCL 차이니즈 극장·Hollywood Roosevelt·El Capitan·Pantages·Musso & Frank·Amoeba Music. 7번가 Stonewall Inn·Palace Theatre·Minskoff·Village Vanguard·Smalls Jazz Club(후보 400곳으로 Stonewall Inn·Village Vanguard가 들어옴). 옥스퍼드 Selfridges·100 Club과 플래그십들. 긴자 Imperial Hotel·GINZA SIX·Apple 긴자·Ginza Place·Artizon Museum. 강남대로는 Starbucks Reserve·Shake Shack·Zara·MUJI를 flagship·iconic으로 고름(약함, 데모 목록 맨 뒤).
+- 새 퀘스트 프롬프트(실모델 3.0~4.7초, 이름·숫자가 새어 나온 줄 없음): 할리우드 저녁 = 식당 → 바 → TCL 차이니즈 극장, 옥스퍼드 아이와 함께 = 도넛 가게 → Twist Museum → 디즈니 스토어, 긴자 커피 = 커피집 → 화랑 → Apple 긴자. 5번가 비 오는 날 = 커피숍과 스타벅스(약함).
+- 고친 것(D42): 퀘스트의 「알려진 곳」은 Muse Spark가 고른 랜드마크만, 비 오는 날 테마에 박물관·미술관, 프롬프트는 「정류장끼리 가깝게, 테마에 더 맞는 곳이 길 위쪽에 있으면 거기서 시작해도 됨」(전에는 「짧게 걷게」).
+- 레포 이름: 민우가 GitHub에서 whatif-camera → whats-ahead로 바꿈(공식 규정에 레포 이름 조항 없음, 옛 주소는 GitHub가 넘겨 줌). 배포 주소 whatif-camera.vercel.app은 Vercel 프로젝트 이름이라 그대로. package.json·README·CLAUDE.md·서버 User-Agent의 옛 이름을 정리.
+- 확인: `npm test` 146개 통과(실호출 11개 건너뜀), lint·build·check:api 통과.
+- 확인 필요(머지 뒤 실서버): 5번가 비 오는 날 퀘스트가 미술관·박물관을 고르는지, 이름이 바뀐 레포에서 Vercel 배포가 그대로 되는지.
+
 ## 2026-10-30 (KST) · 4일 차 ⑤: 레포를 What's Ahead 하나로 (D41)
 - 민우: 「README나 공개 레포의 겉모습이 지금 제품 컨셉과 전혀 다름, 브레인스토밍 단계의 잔재가 남아 있음」. 건물 시제품 코드(레포의 약 40%, three.js를 모든 방문자가 내려받음)를 어떻게 할지 물음 → 「완전히 삭제」.
 - 한 것: 건물 모드 전부 삭제(코드, 테스트 56개, three.js, 프리셋, 건물 스크린샷, CSS 37규칙), 길 찾기가 쓰던 것은 `server/upstream.ts`로, README·CLAUDE.md·`.env.example`을 What's Ahead만으로, `index.html`에 설명·Open Graph·Twitter 카드와 미리보기 그림 `public/og.jpg`, `package.json`에 설명·홈페이지.

@@ -16,7 +16,7 @@ type Deps = { env?: EnvMap; fetchImpl?: typeof fetch; now?: () => number };
 
 export const QUEST_SYSTEM_PROMPT = [
   "You plan a short walking quest along one real street for someone standing at its start.",
-  "Choose two to four stops, only from the list of places, by their id, in walking order (nearest first), and keep the walk short unless the theme needs more.",
+  "Choose two to four stops, only from the list of places, by their id, in walking order (nearest first), close to one another; they may start further along the street when the places that fit the theme best are there.",
   "Use what you know about the places by name: when they fit the theme, prefer places known well beyond their block (those marked known among them), and never pick a place for a theme it does not fit.",
   "Reply with exactly one JSON object and nothing else: {\"title\": \"...\", \"stops\": [{\"id\": \"...\", \"line\": \"...\"}]}.",
   "The title is at most six words. Each line is at most fourteen words and says what to do or try there.",

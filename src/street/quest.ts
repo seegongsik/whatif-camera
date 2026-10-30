@@ -15,7 +15,7 @@ export const QUEST_THEMES = {
   coffee: { label: "Coffee and a browse", hint: "a café first, then two or three shops worth a look" },
   lunch: { label: "Lunch break", hint: "somewhere to eat soon, then something sweet or a short browse" },
   evening: { label: "Evening out", hint: "dinner, then a bar or something fun; places open in the evening" },
-  rainy: { label: "Rainy day", hint: "indoor places close together: cafés, bookshops, cinemas, covered markets" },
+  rainy: { label: "Rainy day", hint: "indoor places close together: museums and galleries, cafés, bookshops, cinemas, covered markets" },
   kids: { label: "With kids", hint: "family-friendly places: ice cream, bakeries, toys, things to do; no bars" },
   surprise: { label: "Surprise me", hint: "an unexpected mix of three or four different kinds of places" },
 } as const;
@@ -39,7 +39,7 @@ export type QuestPlace = {
   distanceM: number;
   openingHours?: string;
   cuisine?: string;
-  /** Muse Spark named it one of this street's landmarks or one of the best known of its kind. */
+  /** Muse Spark named it one of this street's landmarks. */
   known?: boolean;
 };
 

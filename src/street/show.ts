@@ -291,7 +291,7 @@ export class StreetShow {
   private pickWhy = new Map<string, PickReason>();
   /** Muse Spark's best-known places of each chip's kind. */
   private aiBest: Picks["best"] = {};
-  /** Every place Muse Spark named, kept or not: a quest asks it to prefer these. */
+  /** Every place Muse Spark named a landmark, kept along the street or not: a quest asks it to prefer these. */
   private modelNamed = new Set<string>();
   /** A demo street's picks, asked for alongside the street (null: the page asks once the street is in). */
   private demoPicks: Promise<Response | null> | null = null;
