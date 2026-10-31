@@ -105,6 +105,37 @@ describe("the street ahead (SYNTHETIC)", () => {
     expect(route.length).toBeCloseTo(1200 + 4400, 3);
   });
 
+  it("ends where it turns back: a divided road whose two sides the map joins into one line", () => {
+    // Up the east side 1 km, round the end and down the west side, as the tiles give Chuo-dori at Nihonbashi.
+    const divided: LocalWay[] = [
+      { id: "joined", name: "Divided Road", highway: "trunk", points: [{ x: 5, y: -100 }, { x: 5, y: 1000 }, { x: -5, y: 1010 }, { x: -15, y: 1000 }, { x: -15, y: -3000 }] },
+    ];
+    const route = followRoute(divided, matchStreet(divided, 0)!, 5000);
+    expect(route.length).toBeCloseTo(1000 + Math.hypot(10, 10), 6);
+    expect(route.points[route.points.length - 1]).toEqual({ x: -5, y: 1010 });
+    // A place across the road is 500 m ahead on the left, not 1.5 km on the way back.
+    const across = placeOnRoute(route, { x: -25, y: 500 })!;
+    expect(across.s).toBeCloseTo(500, 6);
+    expect(across.offset).toBeCloseTo(-30, 6);
+  });
+
+  it("follows a street that bends back a little, and ends one that comes round where it got farthest", () => {
+    // North 1 km, then 50 m south-east (about 35 m back toward the start), then east.
+    const bend = [{ x: 0, y: -100 }, { x: 0, y: 1000 }, { x: 35.36, y: 964.64 }];
+    const winding: LocalWay[] = [
+      { id: "a", name: "Winding Road", highway: "primary", points: bend },
+      { id: "b", name: "Winding Road", highway: "primary", points: [bend[2], { x: 1035.36, y: 964.64 }] },
+    ];
+    const on = followRoute(winding, matchStreet(winding, 0)!, 5000);
+    expect(on.wayIds).toEqual(["a", "b"]);
+    expect(on.length).toBeCloseTo(2050, 1);
+    // Round on to the south instead, as around a square: it ends 1 km up, and b is not on it.
+    const round: LocalWay[] = [winding[0], { ...winding[1], points: [bend[2], { x: 35.36, y: -500 }] }];
+    const route = followRoute(round, matchStreet(round, 0)!, 5000);
+    expect(route.wayIds).toEqual(["a"]);
+    expect(route.length).toBeCloseTo(1000, 6);
+  });
+
   it("places a point by distance ahead and side of the street", () => {
     const route = followRoute(localWays, matchStreet(localWays, 4)!, 5000);
     const right = placeOnRoute(route, { x: 20, y: 500 });

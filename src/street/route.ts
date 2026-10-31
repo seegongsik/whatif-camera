@@ -3,7 +3,7 @@
  * stands at the origin). The camera is matched to the street it looks along;
  * the route then follows that street forward through its junctions, by the
  * nodes the ways share: the same name first, otherwise the straightest way
- * on, until the length runs out or the street ends.
+ * on, until the length runs out, the street ends or it turns back.
  */
 import { bearingDeg, wrapDeg, type EN } from "../geo/enu.js";
 
@@ -38,6 +38,16 @@ export const MATCH_WIDE_RADIUS_M = 120;
 export const MATCH_ANGLE_DEG = 40;
 /** The route starts a little behind the camera, so shops right beside it are on it. */
 export const BEHIND_M = 20;
+/**
+ * How far a route may come back toward its start before it ends where it
+ * got farthest. The vector tiles join a divided road's two sides into one
+ * line where they meet (Chuo-dori at Nihonbashi: followed on, the route ran
+ * 2.5 km back down the other side to Ginza, and the places on that side
+ * were put on the way back), and a street can end around a square (Oxford
+ * Street at Marble Arch). A winding street comes back a little (Market
+ * Street up Twin Peaks, about 40 m).
+ */
+export const TURN_BACK_M = 100;
 
 const RANK: Record<string, number> = {
   trunk: 0,
@@ -143,6 +153,8 @@ export function followRoute(ways: LocalWay[], match: StreetMatch, maxLengthM = 5
   const points: EN[] = [...back];
   const total = { m: 0 };
   const wayIds = [first.id];
+  // The index of the first point each way adds.
+  const wayStarts = [back.length];
   const visited = new Set([first.id]);
   let way = first;
   let endIndex = match.forward ? way.points.length - 1 : 0;
@@ -173,14 +185,48 @@ export function followRoute(ways: LocalWay[], match: StreetMatch, maxLengthM = 5
     if (!pick) break;
     visited.add(pick.way.id);
     wayIds.push(pick.way.id);
+    wayStarts.push(points.length);
     way = pick.way;
     endIndex = pick.forward ? way.points.length - 1 : 0;
     done = extend(points, total, walk(way, pick.index, pick.forward).slice(1), maxLengthM);
   }
 
+  const farthest = turnBack(points, back.length - 1);
+  if (farthest !== null) points.length = farthest + 1;
   const along: number[] = [-backTotal.m];
   for (let i = 1; i < points.length; i += 1) along.push(along[i - 1] + len(sub(points[i], points[i - 1])));
-  return { name: first.name ?? first.ref, points, along, length: total.m, wayIds };
+  return {
+    name: first.name ?? first.ref,
+    points,
+    along,
+    length: farthest === null ? total.m : along[along.length - 1],
+    wayIds: wayIds.filter((_, k) => wayStarts[k] < points.length),
+  };
+}
+
+/**
+ * Where a route got farthest from its start (the point at index `start`),
+ * when after it the route comes back toward the start by more than
+ * TURN_BACK_M; null when it never does.
+ */
+function turnBack(points: EN[], start: number): number | null {
+  const o = points[start];
+  let farthest = start;
+  let farthestM = 0;
+  for (let i = start + 1; i < points.length; i += 1) {
+    // A long segment can pass the start between its ends: its nearest point to the start, then its end.
+    const a = points[i - 1];
+    const v = sub(points[i], a);
+    const l2 = v.x * v.x + v.y * v.y;
+    const t = l2 > 0 ? Math.min(1, Math.max(0, ((o.x - a.x) * v.x + (o.y - a.y) * v.y) / l2)) : 0;
+    if (farthestM - len(sub(lerp(a, points[i], t), o)) > TURN_BACK_M) return farthest;
+    const d = len(sub(points[i], o));
+    if (d > farthestM) {
+      farthest = i;
+      farthestM = d;
+    }
+  }
+  return null;
 }
 
 export type Placement = { s: number; offset: number; at: EN };
