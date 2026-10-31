@@ -32,6 +32,8 @@ import {
   REVEAL_PACE,
   sampleRoute,
   screenSide,
+  stallHold,
+  STALL_MS,
   streetCores,
   zoomAbout,
   type ExploreLimits,
@@ -127,6 +129,13 @@ describe("landmarks", () => {
 });
 
 describe("the light", () => {
+  it("pauses through a stall instead of jumping ahead, and keeps its pace on a phone that is only slow", () => {
+    // Frames 17 to 180 ms apart (a 4 to 6 times slower CPU): the run keeps its pace.
+    for (const gap of [17, 74, 180, STALL_MS]) expect(stallHold(gap)).toBe(0);
+    // A 1.5 s stall (a busy moment, a tab out of sight): the light moves on by one frame, not 1.5 s.
+    expect(stallHold(1500)).toBeCloseTo(1500 - 1000 / 60, 6);
+  });
+
   it("runs from start to end, never backwards, and slows down at each stop", () => {
     const run = lightRun(-20, 5000, [1500, 3500], REVEAL_PACE);
     expect(run.at(0)).toBe(-20);

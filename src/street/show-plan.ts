@@ -295,6 +295,20 @@ export function lightRun(from: number, to: number, stops: readonly number[], pac
   };
 }
 
+/**
+ * A frame later than this (a phone busy for a moment, a tab out of sight)
+ * holds a running light back instead of letting it jump ahead. A phone that
+ * is only slow (frames 60 to 180 ms apart under a 4 to 6 times slower CPU)
+ * keeps the run's pace.
+ */
+export const STALL_MS = 250;
+const FRAME_MS = 1000 / 60;
+
+/** How long to hold a running light back after a frame `gapMs` after the last: nothing, or all of a stall but one frame. */
+export function stallHold(gapMs: number): number {
+  return gapMs > STALL_MS ? gapMs - FRAME_MS : 0;
+}
+
 // ----- The camera -----
 
 /** Where the camera looks: a point on the ground, the compass direction, how far down, from how far. */
