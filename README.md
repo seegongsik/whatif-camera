@@ -10,7 +10,7 @@
 <img src="docs/screenshots/2026-10-30-fifth-avenue-whole.jpg" width="250" alt="The whole street: Cartier, Tiffany, Apple Fifth Avenue, the Metropolitan Museum, the Guggenheim and Cooper Hewitt, each marked by Muse Spark">
 </p>
 
-*Fifth Avenue from 42nd Street on the deployment, 2026-10-30, from the map alone: the readings as the street comes in, the light stopping at a landmark, the whole street. A recording of the app on 7th Avenue: [`public/demo/whats-ahead-loop.mp4`](public/demo/whats-ahead-loop.mp4).*
+*Fifth Avenue from 42nd Street on the deployment, 2026-10-30, from the map alone: the readings as the street comes in, the light stopping at a landmark, the whole street. A recording of the app taking a photo at Times Square and running 7th Avenue: [`public/demo/whats-ahead-loop.mp4`](public/demo/whats-ahead-loop.mp4) (photo by CartographDots on Mapillary, CC BY-SA 4.0).*
 
 ## At a glance
 
@@ -44,7 +44,7 @@ Places are what OpenStreetMap and Overture Maps have mapped, shown with their so
 
 ## How it works
 
-The home page opens on a looping recording of the app (`public/demo/whats-ahead-loop.mp4`, 23 s, 2.2 MB; the page does not wait for it, the poster shows first): a viewfinder on a street drawn in light (an illustration, not a photo of a place: no people, text or brands), the shutter, then the app itself taking that picture as its photo at Times Square and running 7th Avenue south with real map data (OpenStreetMap and Overture places as of 2026-10-29, credited in the clip). A finger then taps a restaurant on the street, its card rises, and the finger taps the restaurant's Instagram link; a caption card names the page the link opens (the clip does not show that page, which is someone else's). Right under it comes Open camera, inside the first screen on any phone (on a short screen the clip shrinks to make room), then Continue on the last street from a photo when there is one, a line on what it does, Use a photo (a photo from the phone), a line on where the photo goes, and the demo streets, one per line. On a laptop or desktop (no touch screen) the first button flies down the first demo street instead, and Open camera moves next to Use a photo with a line saying the camera is for a phone on a street; the show itself stands in a phone-shaped column down the middle of a wide screen. The SYNTHETIC street is a small link at the bottom, under the credits: it is for a try without a photo, not a way in.
+The home page opens on a looping recording of the app (`public/demo/whats-ahead-loop.mp4`, 22 s, 2.5 MB; the page does not wait for it, the poster shows first): the camera on a real street-level photo of Times Square looking down 7th Avenue (a Mapillary photo by CartographDots, 2022, CC BY-SA 4.0; faces and plates blurred by Mapillary, a face on a billboard blurred by us; credited in the clip), the shutter, then the app itself taking that picture at Times Square and running 7th Avenue south with real map data (OpenStreetMap and Overture places as of 2026-10-31, credited in the clip): SAM 3.1 finds the signs in the photo, Muse Spark picks the landmarks the light stops at, and the street settles on your position. A finger then taps a bookshop near you, its card rises, and the finger taps its Instagram link; a caption card names the page the link opens (the clip does not show that page, which is someone else's). The recording is the app on the dev server of `main` with the deployment answering its API, in a headless phone-sized Chrome given the photo as its camera, the GPS fix and a compass heading of 209°; the finger and the photo's credit are drawn over it. Right under it comes Open camera, inside the first screen on any phone (on a short screen the clip shrinks to make room), then Continue on the last street from a photo when there is one, a line on what it does, Use a photo (a photo from the phone), a line on where the photo goes, and the demo streets, one per line. On a laptop or desktop (no touch screen) the first button flies down the first demo street instead, and Open camera moves next to Use a photo with a line saying the camera is for a phone on a street; the show itself stands in a phone-shaped column down the middle of a wide screen. The SYNTHETIC street is a small link at the bottom, under the credits: it is for a try without a photo, not a way in.
 
 ![The SYNTHETIC street: the radar while the street is looked up, the light stopping at a landmark, the whole street with its landmarks and the chips](docs/screenshots/2026-10-28-street-show-synthetic.jpg)
 
@@ -129,6 +129,10 @@ Server side only; `/api/status` returns booleans.
 | `typescript`, `typescript-eslint`, `eslint`, `@eslint/js`, `globals`, `@types/node` | types and lint | Apache-2.0 / MIT |
 
 All application code was written in this repository during the hackathon (from 2026-10-27 02:00 KST).
+
+| Media | Source | License |
+| --- | --- | --- |
+| The photo in the landing clip `public/demo/whats-ahead-loop.mp4` | Times Square, looking down 7th Avenue, 2022-04-05, by CartographDots on [Mapillary](https://www.mapillary.com) (Meta's street-level imagery); cropped to 3:4 and a face on a billboard blurred | CC BY-SA 4.0. The clip adapts it, so the clip itself is under CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/); the rest of the repository is not |
 
 ## Limits
 

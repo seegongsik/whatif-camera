@@ -223,6 +223,10 @@ main.camera video {
   gap: 8px;
 }
 
+.camera-ways.hidden {
+  display: none;
+}
+
 .camera-ways button {
   background: rgba(0, 0, 0, 0.72);
   color: #fff;
@@ -1355,9 +1359,10 @@ body.street-mode main.landing h1 {
 
 .hero-tag {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
-  gap: 10px;
+  gap: 4px 10px;
   margin: 0 2px 8px;
   color: #fff;
   font: 700 10px/1 var(--mono);
