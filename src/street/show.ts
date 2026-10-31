@@ -207,6 +207,12 @@ const OUT_PATH = "M8 16 16.5 7.5M9.5 7.5h7v7";
 const SHARE_PATH = "M12 15V3.5M7.5 8 12 3.5 16.5 8M6 11.5H5v9h14v-9h-1";
 /** Four corners: the whole street in the frame (24 × 24 view box). */
 const FIT_PATH = "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5";
+/** Someone walking, stroked (24 × 24 view box). */
+const WALK_PATH = "M14 2.5a2 2 0 1 1 0 4 2 2 0 0 1 0-4M13 8.5l-1.5 6M11.5 14.5 9 21M11.5 14.5l2.6 2.8.9 3.7M13 9l3.5 3M13 9l-3 2.4-1.5 2.6";
+/** A turn back to the start: play it again, stroked (24 × 24 view box). */
+const REPLAY_PATH = "M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4.5 4v4.5H9";
+/** A ring with ticks: back to where you are, stroked (24 × 24 view box). */
+const LOCATE_PATH = "M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M12 7.5a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9";
 
 /** The ground the visitor's camera may look at: the points' box with a margin, metres. */
 /** A short buzz on phones that can, once the page has been touched (before that the browser refuses it and says so in the console). */
@@ -235,6 +241,11 @@ function buttonIcon(d: string, filled: boolean): SVGSVGElement {
     svg("path", filled ? { d, fill: "currentColor" } : { d, fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round" }),
   );
   return icon;
+}
+
+/** A round icon button for the bars' small actions. */
+function roundButton(d: string, label: string, onclick: () => void): HTMLButtonElement {
+  return h("button", { class: "show-round", "aria-label": label, title: label, onclick }, buttonIcon(d, false));
 }
 
 export function compassPoint(deg: number): string {
@@ -268,7 +279,10 @@ export class StreetShow {
   private readonly captionEl: HTMLElement;
   private captionKey = "";
   private readonly questButton: HTMLButtonElement;
+  private readonly walkButton: HTMLButtonElement;
   private readonly shareButton: HTMLButtonElement;
+  /** The light is running: the bottom steps back so the street (and your dot) shows through it. */
+  private dockPlaying = false;
   private questSheet: QuestSheet | null = null;
 
   private street: StreetAhead | null = null;
@@ -373,7 +387,15 @@ export class StreetShow {
       buttonIcon(SPARKLE_PATH, true),
       h("span", { class: "show-btn-text" }, h("span", { class: "show-btn-label", text: "Make a quest" }), h("span", { class: "show-btn-tag", text: "Planned by Muse Spark" })),
     );
-    this.shareButton = h("button", { class: "show-btn hidden", onclick: () => void this.share() }, buttonIcon(SHARE_PATH, false), h("span", { class: "show-btn-label", text: "Share" }));
+    // Beside it, two small tools: an icon over a word, as on a phone's tab bar.
+    const live = options.live === true;
+    this.walkButton = h(
+      "button",
+      { class: "show-tool hidden", "aria-label": live ? "Walk it: your dot follows your phone" : "Walk it, simulated", onclick: () => this.startWalk(live ? "live" : "simulated") },
+      buttonIcon(WALK_PATH, false),
+      h("span", { text: live ? "Walk" : "Simulate" }),
+    );
+    this.shareButton = h("button", { class: "show-tool hidden", "aria-label": "Share", onclick: () => void this.share() }, buttonIcon(SHARE_PATH, false), h("span", { text: "Share" }));
     const close = h("button", { class: "show-icon", "aria-label": "Close", title: "Close", onclick: options.onClose }, "×");
     this.consoleEl = h("div", { class: "show-console" });
     this.noteEl = h("div", { class: "show-note hidden" });
@@ -385,7 +407,7 @@ export class StreetShow {
     this.walkBarEl = h("div", { class: "show-quest show-walk hidden" });
     this.creditEl = h("div", { class: "show-credit", text: "Map © OpenStreetMap contributors" });
     this.captionEl = h("div", { class: "show-caption hidden" });
-    this.bottomEl = h("div", { class: "show-bottom away" }, this.questBarEl, this.walkBarEl, h("div", { class: "show-actions" }, this.questButton, this.shareButton), this.barEl, this.chipsEl);
+    this.bottomEl = h("div", { class: "show-bottom away" }, this.questBarEl, this.walkBarEl, h("div", { class: "show-actions" }, this.questButton, this.walkButton, this.shareButton), this.barEl, this.chipsEl);
     this.cardEl = h("div", { class: "show-card hidden" });
     this.element = h(
       "main",
@@ -740,6 +762,11 @@ export class StreetShow {
   private frame(now: number): void {
     if (this.disposed) return;
     this.update(now);
+    const playing = this.phase === "run";
+    if (playing !== this.dockPlaying) {
+      this.dockPlaying = playing;
+      this.bottomEl.classList.toggle("playing", playing);
+    }
     this.walkAt = this.walkShown(now);
     const pose = this.poseAt(now);
     this.lastPose = pose;
@@ -1978,17 +2005,21 @@ export class StreetShow {
     const focus: Focus = { key: "quest", noun: "stops", color: QUEST_GOLD, match: (shop) => ids.has(shop.id), picks: [...stops].sort((a, b) => a.s - b.s), quest: { quest, stops } };
     this.questBarEl.replaceChildren(
       h("div", { class: "show-quest-text" }, h("strong", { text: `✦ ${quest.title}` }), h("span", { text: `${stops.length} stops · ${quest.source === "muse-spark-open" ? "by Muse Spark" : "picked by the app"}` })),
-      h("button", { class: "show-pill", onclick: () => this.beginRun(focus, this.clock()) }, "Replay"),
-      h("button", { class: "show-pill ghost", "aria-label": "End the quest", onclick: () => this.endQuest(true) }, "×"),
+      roundButton(REPLAY_PATH, "Replay the quest", () => this.beginRun(focus, this.clock())),
+      h("button", { class: "show-round", "aria-label": "End the quest", title: "End the quest", onclick: () => this.endQuest(true) }, "×"),
     );
     this.questBarEl.classList.remove("hidden", "offer");
     this.beginRun(focus, this.clock());
+    this.walkBarKey = "";
+    if (this.walk) this.renderWalkBar(this.clock());
     this.measureInsets();
   }
 
   private endQuest(back: boolean): void {
     if (this.questBarEl.classList.contains("hidden")) return;
     this.questBarEl.classList.add("hidden");
+    this.walkBarKey = "";
+    if (this.walk) this.renderWalkBar(this.clock());
     this.measureInsets();
     if (back && this.focus?.quest) this.showAll();
   }
@@ -2138,13 +2169,16 @@ export class StreetShow {
   }
 
   /**
-   * The bar above the buttons while walking: the next place, how far along
-   * the street you are and the next landmark. Before a walk, the offer to
-   * walk it (SIMULATED where no phone is on the street).
+   * The bar above the buttons while walking: the next place (on a quest, the
+   * next stop), how far along the street you are and the next landmark (or the
+   * quest). One bar at a time: walking, it stands in for the quest's. Before
+   * a walk, Walk in the buttons offers it (SIMULATED where no phone is on the
+   * street).
    */
   private renderWalkBar(now: number, offer = false): void {
     const walk = this.walk;
     const street = this.street;
+    const quest = this.questBarEl.classList.contains("hidden") ? null : (this.focus?.quest ?? null);
     let key = "";
     let parts: (Node | null)[] = [];
     if (street && walk) {
@@ -2153,41 +2187,42 @@ export class StreetShow {
       const tag = walk.mode === "simulated" ? `SIMULATED ×${SIMULATED_SPEEDUP}` : "LIVE";
       let title = "Finding your position…";
       let line = `${tag} · the dot follows your phone along ${where}`;
+      let gold = false;
       if (spot && !spot.onStreet) {
         title = `Off ${where}, ${distanceText(spot.awayM)} away`;
         line = `${tag} · back on it, the dot picks you up again`;
       } else if (spot) {
-        const next = nextPlace(street.shops, spot.s);
-        const mark = this.landmarks.find((l) => l.s > spot.s + 5);
-        title = next ? `Next: ${next.name} · ${distanceText(next.s - spot.s)} on the ${next.side}` : `The end of ${where} is near`;
-        line = `${tag} · ${(Math.max(0, spot.s) / 1000).toFixed(2)} km along${mark && mark !== next ? ` · ✦ ${mark.name} in ${distanceText(mark.s - spot.s)}` : ""}`;
+        const along = `${tag} · ${(Math.max(0, spot.s) / 1000).toFixed(2)} km along`;
+        const stops = quest ? [...quest.stops].sort((a, b) => a.s - b.s) : [];
+        const stop = stops.findIndex((x) => x.s > spot.s + 5);
+        if (quest && stop >= 0) {
+          const next = stops[stop];
+          title = `Stop ${stop + 1}/${stops.length}: ${next.name} · ${distanceText(next.s - spot.s)} on the ${next.side}`;
+          line = `${along} · ✦ ${quest.quest.title}`;
+          gold = true;
+        } else {
+          const next = nextPlace(street.shops, spot.s);
+          const mark = this.landmarks.find((l) => l.s > spot.s + 5);
+          title = next ? `Next: ${next.name} · ${distanceText(next.s - spot.s)} on the ${next.side}` : `The end of ${where} is near`;
+          line = quest ? `${along} · ✦ ${quest.quest.title}: every stop passed` : `${along}${mark && mark !== next ? ` · ✦ ${mark.name} in ${distanceText(mark.s - spot.s)}` : ""}`;
+        }
       }
       const away = walk.offSince !== null && now - walk.offSince > OFF_STREET_MS && this.options.onNewStreet;
-      key = `walk|${title}|${line}|${walk.follow}|${away}`;
+      key = `walk|${title}|${line}|${walk.follow}|${away}|${gold}`;
       parts = [
-        h("div", { class: "show-quest-text" }, h("strong", {}, h("i", { class: `show-walk-dot${walk.mode === "simulated" ? " sim" : ""}` }), title), h("span", { text: line })),
+        h("div", { class: "show-quest-text" }, h("strong", { class: gold ? "gold" : "" }, h("i", { class: `show-walk-dot${walk.mode === "simulated" ? " sim" : ""}` }), title), h("span", { text: line })),
         away ? h("button", { class: "show-pill", onclick: () => this.options.onNewStreet?.() }, "New street here") : null,
-        walk.follow ? null : h("button", { class: "show-pill", onclick: () => this.followAgain() }, "Follow"),
-        h("button", { class: "show-pill ghost", "aria-label": "Stop following", onclick: () => this.stopWalk() }, "×"),
-      ];
-    } else if (street && offer && (this.options.live || this.options.simulate)) {
-      const live = this.options.live === true;
-      key = `offer|${live}`;
-      parts = [
-        h(
-          "div",
-          { class: "show-quest-text" },
-          h("strong", { text: live ? "Walk it" : "Walk it · simulated" }),
-          h("span", { text: live ? "Your dot moves along the street as you go" : "On the street, your dot follows your phone; here a SIMULATED walk" }),
-        ),
-        h("button", { class: "show-pill", onclick: () => this.startWalk(live ? "live" : "simulated") }, live ? "Start" : "Simulate"),
+        walk.follow ? null : roundButton(LOCATE_PATH, "Follow your dot again", () => this.followAgain()),
+        h("button", { class: "show-round", "aria-label": "Stop following", title: "Stop following", onclick: () => this.stopWalk() }, "×"),
       ];
     }
+    const offering = !walk && offer && street !== null && (this.options.live === true || this.options.simulate === true);
+    this.walkButton.classList.toggle("hidden", !offering);
+    this.bottomEl.classList.toggle("walking", walk !== null);
     if (key === this.walkBarKey) return;
     this.walkBarKey = key;
     this.walkBarEl.replaceChildren(...parts.filter((x): x is Node => x !== null));
     this.walkBarEl.classList.toggle("hidden", key === "");
-    this.walkBarEl.classList.toggle("offer", key.startsWith("offer"));
     this.measureInsets();
   }
 
