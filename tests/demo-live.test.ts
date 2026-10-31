@@ -7,7 +7,7 @@
 // the deployment, or DEMO_LIVE=<base URL>). Both, because the CDN keeps a cache
 // for each address and a judge may have the old one (DECISIONS D43).
 import { describe, expect, it } from "vitest";
-import { FAMOUS_STREETS } from "../src/street/famous.js";
+import { distanceM, FAMOUS_STREETS } from "../src/street/famous.js";
 import type { Picks } from "../src/street/picks.js";
 import type { StreetAhead } from "../src/street/street.js";
 
@@ -29,7 +29,17 @@ for (const base of bases) {
         const street = await timed(`${base}/api/street?${query}`);
         expect(street.res.status).toBe(200);
         const body = (await street.res.json()) as StreetAhead;
+        // Nothing fell back (Overture, the tiles): such a street shows fewer places and is not kept in the CDN.
+        expect(body.notes ?? []).toEqual([]);
         expect(body.shops.length).toBeGreaterThan(50);
+        // The street runs ahead: its end stands at least 70% of its length from its start, not round and back.
+        const points = body.route.points;
+        const reach = distanceM(points[0], points[points.length - 1]) / body.route.length;
+        expect(reach).toBeGreaterThan(0.7);
+        // Places on both sides: a route along one side of a divided road puts the other side's on the way back.
+        const left = body.shops.filter((s) => s.side === "left").length / body.shops.length;
+        expect(left).toBeGreaterThan(0.1);
+        expect(left).toBeLessThan(0.9);
         const picks = await timed(`${base}/api/landmarks?demo=${demo.id}`);
         expect(picks.res.status).toBe(200);
         const answer = (await picks.res.json()) as { picks: Picks; latencyMs: number };
@@ -42,7 +52,7 @@ for (const base of bases) {
         expect(named.filter((s) => /\.(com|org|net)\b/i.test(s!.name))).toEqual([]);
         const list = answer.picks.landmarks.map((l) => `${byId.get(l.id)!.name} (${l.why})`).join(", ");
         console.log(
-          `${demo.short}: street ${street.ms} ms (${street.cache}), ${body.shops.length} places, ${(body.route.length / 1000).toFixed(1)} km; ` +
+          `${demo.short}: street ${street.ms} ms (${street.cache}), ${body.shops.length} places (${Math.round(left * 100)}% left), ${(body.route.length / 1000).toFixed(1)} km; ` +
             `picks ${picks.ms} ms (${picks.cache}, model ${(answer.latencyMs / 1000).toFixed(1)} s): ${list}`,
         );
       },

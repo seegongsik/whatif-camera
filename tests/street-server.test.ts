@@ -244,6 +244,25 @@ describe("street lookup (SYNTHETIC)", () => {
     await expect(lookupStreet(origin, 0, { fetchImpl, env: {} })).rejects.toThrow(/No street runs beside you/);
   });
 
+  it("lets the CDN keep a street, but not one that fell back", async () => {
+    const { fetchImpl } = fakeFetch(({ url }) => {
+      if (url.endsWith("/planet")) return Response.json({ tiles: ["https://tiles.example/{z}/{x}/{y}.pbf"] });
+      if (url.includes(`/14/${tile.x}/${tile.y}.pbf`)) return new Response(new Blob([syntheticTile() as BlobPart]));
+      return new Response(null, { status: 204 });
+    });
+    const ask = (env: Record<string, string>) =>
+      handleStreet(new Request(`http://local/api/street?lat=${origin.lat}&lon=${origin.lon}&heading=0`), { fetchImpl, env });
+    const kept = await ask({ OVERTURE_PLACES: "off" });
+    expect(kept.status).toBe(200);
+    expect(kept.headers.get("Cache-Control")).toContain("s-maxage=86400");
+    clearStreetCachesForTests();
+    // Overture asked and not answering (the bucket gives nothing here): the tiles' places, not kept.
+    const fellBack = await ask({});
+    expect(fellBack.status).toBe(200);
+    expect(((await fellBack.json()) as { notes?: string[] }).notes?.[0]).toMatch(/^overture: /);
+    expect(fellBack.headers.get("Cache-Control")).toBe("no-store");
+  });
+
   it("checks the request before looking anything up", async () => {
     const response = await handleStreet(new Request("http://local/api/street?lat=37.5&lon=127"));
     expect(response.status).toBe(400);
