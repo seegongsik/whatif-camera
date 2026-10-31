@@ -720,12 +720,22 @@ main.show {
   box-shadow: 0 6px 22px rgba(255, 196, 61, 0.26);
 }
 
-/* Label over a small line naming who does the work. */
+/* Label over a small line naming who does the work; on a narrow phone it gives way to the tools beside it. */
+.show-bottom .show-btn.primary,
+.show-btn-text {
+  min-width: 0;
+}
+
 .show-btn-text {
   display: grid;
   gap: 2px;
   text-align: left;
   white-space: nowrap;
+}
+
+.show-btn-text > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .show-btn-label {
@@ -741,6 +751,100 @@ main.show {
 
 .show-btn.hidden {
   display: none;
+}
+
+/* Small tools beside the quest button: an icon over a word, as on a phone's tab bar. */
+.show-tool {
+  display: grid;
+  flex: none;
+  place-items: center;
+  align-content: center;
+  gap: 4px;
+  width: 58px;
+  min-height: 48px;
+  padding: 5px 0 4px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.07);
+  color: #fff;
+  font: 700 8.5px/1 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  transition: transform 0.12s;
+}
+
+.show-tool:active {
+  transform: scale(0.96);
+}
+
+.show-tool svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Its display would otherwise win over .hidden. */
+.show-tool.hidden {
+  display: none;
+}
+
+@media (max-width: 340px) {
+  .show-tool {
+    width: 52px;
+  }
+
+  .show-bottom .show-btn.primary {
+    padding: 0 12px;
+  }
+
+  .show-btn-tag {
+    font-size: 9px;
+    letter-spacing: 0.03em;
+  }
+}
+
+/* The bars' small actions: round icons. */
+.show-round {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 17px;
+  line-height: 1;
+}
+
+.show-round svg {
+  width: 17px;
+  height: 17px;
+}
+
+/* Walking, the walk's bar stands in for the quest's: it names the next stop. */
+.show-bottom.walking .show-quest:not(.show-walk) {
+  display: none;
+}
+
+/* While the light runs the bottom steps back: the street under it, and your dot, show through. */
+.show-bottom > *,
+.show-bottom::before {
+  transition: opacity 0.45s;
+}
+
+.show-bottom.playing > * {
+  opacity: 0.3;
+}
+
+.show-bottom.playing::before {
+  opacity: 0.15;
+}
+
+.show-bottom.playing:focus-within > *,
+.show-bottom.playing:active > * {
+  opacity: 1;
 }
 
 /* The street's mix of places, kind by kind, as one strip. */
@@ -923,6 +1027,11 @@ main.show {
 
 .show-walk .show-quest-text strong {
   color: #fff;
+}
+
+/* On a quest, the next stop in the quest's gold. */
+.show-walk .show-quest-text strong.gold {
+  color: #ffd54a;
 }
 
 /* LIVE: a pulsing green dot; SIMULATED: an amber one. */
