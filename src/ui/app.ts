@@ -576,11 +576,12 @@ function timeZone(): string | undefined {
 }
 
 /**
- * The landing's moving picture: a recording of the app itself (the photo is
- * a drawn street; the street, its places and landmarks are real map data,
- * credited in the clip). It ends on a tap on a place and its Instagram link,
- * and a caption card with where that link goes. Still, on its poster, when
- * motion is reduced.
+ * The landing's moving picture: a recording of the app itself, taking a
+ * street-level photo of Times Square from Mapillary (CC BY-SA 4.0, credited
+ * in the clip) as its photo; the street, its places and landmarks are real
+ * map data, credited in the clip. It ends on a tap on a place and its
+ * Instagram link, and a caption card with where that link goes. Still, on
+ * its poster, when motion is reduced.
  */
 function heroClip(): HTMLElement {
   const still = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -588,7 +589,7 @@ function heroClip(): HTMLElement {
     class: "hero-clip",
     src: "/demo/whats-ahead-loop.mp4",
     poster: "/demo/whats-ahead-loop.jpg",
-    "aria-label": "Recording of the app: a photo down 7th Avenue from Times Square, a light running the street and stopping at its landmarks, then a tap on a restaurant and on its Instagram link",
+    "aria-label": "Recording of the app: a photo down 7th Avenue from Times Square, a light running the street and stopping at its landmarks, then a tap on a bookshop near you and on its Instagram link",
   });
   // Muted and inline, as attributes too, so phones let it play by itself.
   for (const name of ["muted", "playsinline", "loop"]) video.setAttribute(name, "");
@@ -603,7 +604,7 @@ function heroClip(): HTMLElement {
   return h(
     "figure",
     { class: "hero" },
-    h("figcaption", { class: "hero-tag" }, h("span", {}, h("i"), "DEMO · FROM TIMES SQUARE, NEW YORK"), h("span", { class: "hero-tag-note", text: "real map data" })),
+    h("figcaption", { class: "hero-tag" }, h("span", {}, h("i"), "DEMO · TIMES SQUARE"), h("span", { class: "hero-tag-note", text: "real photo, real map data" })),
     h("div", { class: "hero-frame" }, video),
   );
 }
