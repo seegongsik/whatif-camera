@@ -10,6 +10,9 @@ describe("places the data has in the wrong spot", () => {
     expect(misplaced({ name: "Palo Alto - Stanford Mall", point: { lat: 37.4434, lon: -122.171 } })).toBe(false);
     expect(misplaced({ name: "Las Michoacanitas", point: mall.at })).toBe(false);
     expect(MISPLACED.every((m) => m.why.length > 20)).toBe(true);
+    // SFMOMA on Market Street goes; the museum on Third Street, where it stands, stays.
+    expect(misplaced({ name: "San Francisco Museum of Modern Art", point: { lat: 37.783474, lon: -122.408974 } })).toBe(true);
+    expect(misplaced({ name: "San Francisco Museum of Modern Art", point: { lat: 37.7857, lon: -122.4011 } })).toBe(false);
   });
 
   it("give a place named by its web address its own name, there and nowhere else", () => {

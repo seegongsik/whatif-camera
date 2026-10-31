@@ -14,6 +14,7 @@ import { showReach } from "../src/street/show-plan.js";
 import { isSignPrompt, SamError, SIGN_PROMPT, SIGN_PROMPTS, signsWithSam } from "./sam.js";
 import { SHOP_CATEGORIES, type ShopCategory } from "../src/street/osm.js";
 import { isQuestTheme, type QuestPlace } from "../src/street/quest.js";
+import type { StreetAhead } from "../src/street/street.js";
 import { MAX_SIGN_BOXES, type SpotPlace } from "../src/street/spotted.js";
 
 /** Large enough for a 1280 px JPEG, well under the 4.5 MB function body limit. */
@@ -36,6 +37,17 @@ export async function handleStatus(_request: Request, deps: Deps = {}): Promise<
  */
 const STREET_CACHE = "public, max-age=900, s-maxage=86400, stale-while-revalidate=604800";
 
+/**
+ * A street that fell back somewhere (its notes: Overture or the tiles did
+ * not answer) is not kept, so the next visitor gets a fresh try: on
+ * 2026-10-31 Market Street came once with the tiles' 151 places for
+ * Overture's 427, which the CDN would have kept for a day and served for a
+ * week.
+ */
+function streetCache(street: StreetAhead): Record<string, string> {
+  return street.notes ? {} : { "Cache-Control": STREET_CACHE };
+}
+
 export async function handleStreet(request: Request, deps: Deps = {}): Promise<Response> {
   if (request.method !== "GET") return json({ error: "use GET" }, 405);
   const url = new URL(request.url);
@@ -49,7 +61,7 @@ export async function handleStreet(request: Request, deps: Deps = {}): Promise<R
   }
   try {
     const street = await lookupStreet({ lat, lon }, ((heading % 360) + 360) % 360, deps, name?.trim());
-    return json(street, 200, { "Cache-Control": STREET_CACHE });
+    return json(street, 200, streetCache(street));
   } catch (error) {
     if (error instanceof UpstreamError) return json({ error: error.message }, error.status);
     return json({ error: `street lookup failed: ${error instanceof Error ? error.message : String(error)}` }, 502);
@@ -189,9 +201,6 @@ export async function handleLandmarks(request: Request, deps: Deps = {}): Promis
   }
 }
 
-/** The street's own cache, for the model's picks along a demo street. */
-const DEMO_PICKS_CACHE = STREET_CACHE;
-
 async function demoLandmarks(id: string | null, deps: Deps): Promise<Response> {
   const demo = FAMOUS_STREETS.find((s) => s.id === id);
   if (!demo) return json({ error: `demo must be one of ${FAMOUS_STREETS.map((s) => s.id).join(", ")}` }, 400);
@@ -203,7 +212,8 @@ async function demoLandmarks(id: string | null, deps: Deps): Promise<Response> {
     const places = pickCandidates(street.shops, showReach(street.shops, street.route.length), street.name, PICK_DEMO_MAX_PLACES);
     if (places.length < PICK_MIN_PLACES) return json({ error: "the street has too few places to pick from" }, 404);
     const answer = await picksWithSpark(places, { street: street.name?.slice(0, 80), near: roughPosition(demo) }, deps);
-    return json(answer, 200, { "Cache-Control": DEMO_PICKS_CACHE });
+    // The street's own cache: picks for a street that fell back are not kept either.
+    return json(answer, 200, streetCache(street));
   } catch (error) {
     if (error instanceof UpstreamError) return json({ error: error.message }, error.status);
     return sparkFailure(error, "picks");

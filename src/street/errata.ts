@@ -18,6 +18,11 @@ export const MISPLACED: readonly Misplaced[] = [
     at: { lat: 37.47486, lon: -122.13931 },
     why: "Overture (2026-10-21.0) has this shopping mall in East Palo Alto, 4.3 km up University Avenue; the Stanford Shopping Center stands about 4 km away, by El Camino Real.",
   },
+  {
+    name: "San Francisco Museum of Modern Art",
+    at: { lat: 37.78347, lon: -122.40897 },
+    why: "Overture (2026-10-21.0) has the museum on Market Street, 250 m south-west of Powell Street, about 700 m from where it stands on Third Street; Muse Spark picked it as iconic on the Market Street demo.",
+  },
 ];
 
 export type Misnamed = { name: string; at: LatLon; as: string; why: string };
