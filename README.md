@@ -132,7 +132,7 @@ All application code was written in this repository during the hackathon (from 2
 
 | Media | Source | License |
 | --- | --- | --- |
-| The photo in the landing clip `public/demo/whats-ahead-loop.mp4` | Times Square, looking down 7th Avenue, 2022-04-05, by CartographDots on Mapillary (Meta's street-level imagery); cropped to 3:4 and a face on a billboard blurred | CC BY-SA 4.0. The clip adapts it, so the clip itself is under CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/); the rest of the repository is not |
+| The photo in the landing clip `public/demo/whats-ahead-loop.mp4` | Times Square, looking down 7th Avenue, 2022-04-05, by CartographDots on [Mapillary](https://www.mapillary.com) (Meta's street-level imagery); cropped to 3:4 and a face on a billboard blurred | CC BY-SA 4.0. The clip adapts it, so the clip itself is under CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/); the rest of the repository is not |
 
 ## Limits
 
