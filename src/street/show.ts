@@ -53,6 +53,7 @@ import {
   sampleRoute,
   screenSide,
   showReach,
+  stallHold,
   TOUR_FOLLOW,
   TOUR_PACE,
   WALK_FOLLOW,
@@ -103,6 +104,7 @@ const TILT_MS = 1600;
 const LIGHT_DELAY_MS = 500;
 /** Before a tour the camera goes back to the start. */
 const TOUR_LEAD_MS = 1000;
+
 const SETTLE_MS = 1800;
 /** A dot's ripple when the light reaches it. */
 const BIRTH_MS = 700;
@@ -363,6 +365,8 @@ export class StreetShow {
   private vignette: HTMLCanvasElement | null = null;
   private t0 = performance.now();
   private frozen: number | null = null;
+  /** The show's time at the last frame drawn (null: none yet, or frozen). */
+  private lastFrameAt: number | null = null;
   private raf = 0;
   private disposed = false;
   private noteTimer = 0;
@@ -522,6 +526,7 @@ export class StreetShow {
   /** For the browser tests and recordings: draw the show as it is `ms` after it started (null: back to the clock). */
   freeze(ms: number | null): void {
     this.frozen = ms;
+    this.lastFrameAt = null;
     if (ms !== null) this.frame(ms);
   }
 
@@ -597,7 +602,8 @@ export class StreetShow {
 
   private update(now: number): void {
     if (this.phase === "computing" && this.street && this.readyToReveal(now)) {
-      this.beginRun(null, this.revealAt, true);
+      // From now, not from when the reveal was due: waiting for Muse Spark's picks must not start the light halfway down the street.
+      this.beginRun(null, now, true);
       // With reduced motion the light's run is skipped, and a street opened again goes straight to the whole of it.
       if (this.options.resume || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) this.skip();
     }
@@ -689,14 +695,20 @@ export class StreetShow {
     const run = this.run;
     if (this.phase === "run" && run) {
       // Jump to the end of the run: everything it would have shown is shown.
-      const shift = run.start + run.light.duration * 1000 - now;
-      run.start -= shift;
-      run.beginAt -= shift;
-      for (const [id, t] of run.born) run.born.set(id, t - shift);
+      this.shiftRun(now - (run.start + run.light.duration * 1000));
       this.update(now);
       return;
     }
     if (this.phase === "settle" || this.phase === "overview") this.beginRun(this.focus, now);
+  }
+
+  /** Moves the running light's timeline later by `ms` (earlier when negative): the camera, the light and each place it reaches. */
+  private shiftRun(ms: number): void {
+    const run = this.run;
+    if (!run) return;
+    run.start += ms;
+    run.beginAt += ms;
+    for (const [id, t] of run.born) run.born.set(id, t + ms);
   }
 
   private headAt(now: number): number {
@@ -761,6 +773,12 @@ export class StreetShow {
 
   private frame(now: number): void {
     if (this.disposed) return;
+    if (this.frozen === null) {
+      // A stall pauses a running light: it does not jump ahead to where the clock says.
+      const hold = this.lastFrameAt === null ? 0 : stallHold(now - this.lastFrameAt);
+      if (this.phase === "run" && hold > 0) this.shiftRun(hold);
+      this.lastFrameAt = now;
+    }
     this.update(now);
     const playing = this.phase === "run";
     if (playing !== this.dockPlaying) {
