@@ -398,10 +398,11 @@
   - 스트리트뷰 캡처: 구글 이미지의 저작권과 약관(구글 지도 콘텐츠를 다른 제품이나 구글 것이 아닌 지도와 함께 쓰는 것을 막음, 우리는 OpenStreetMap 위에 올림). 공개 레포라 파일이 그대로 퍼짐.
   - 피그마로 「진짜처럼」: 손그림이거나 AI가 만든 사진이 됨. 진짜 장소의 가짜 사진은 카메라 앱 데모에서 실제 촬영으로 읽히고(합성은 SYNTHETIC 표시라는 규칙과 부딪힘), 간판은 지어낸 글자라 SAM 3.1과 Muse Spark의 간판 읽기가 보여 줄 것이 없음.
 - 얼굴·번호판: Mapillary가 사람 얼굴과 버스 번호판을 흐려 둠(확대해서 확인). 광고판 하나의 모델 얼굴(옆얼굴)은 우리가 흐림. 번지 없음. 버스의 작은 차량 번호는 번호판이 아님.
-- 라이선스: CC BY-SA 4.0은 고친 것(자르기, 위에 화면 얹기)도 같은 라이선스여야 해서, 영상 파일 하나만 CC BY-SA 4.0. README의 Media 표와 LICENSE에 예외로 적음(레포의 나머지는 그대로 all rights reserved). 출처는 영상 안(카메라 화면과 계산 화면 위 한 줄, 마지막 자막 카드), README. 확인 필요: Mapillary 사진 주소(pKey), 받으면 README에 링크로.
+- 라이선스: CC BY-SA 4.0은 고친 것(자르기, 위에 화면 얹기)도 같은 라이선스여야 해서, 영상 파일 하나만 CC BY-SA 4.0. README의 Media 표와 LICENSE에 예외로 적음(레포의 나머지는 그대로 all rights reserved). 민우 동의(2026-10-31 「그래 이번 영상만 라이선스 다르게 해줘」). 출처는 영상 안(카메라 화면과 계산 화면 위 한 줄, 마지막 자막 카드), README. 확인 필요: Mapillary 사진 주소(pKey), 받으면 README에 링크로.
 - 녹화 방법: `main`의 개발 서버, API는 실서버(whats-ahead.vercel.app)가 답함(Playwright가 /api를 실서버로 넘김). 헤드리스 크롬, 390×488 CSS px·2배(`--force-device-scale-factor=2`를 함께 줘야 스크린캐스트가 780×976), 가짜 카메라에 사진, GPS 40.7590, -73.9848 ±5 m, 나침반 209°(deviceorientation에 webkitCompassHeading). CDP 스크린캐스트(약 58 fps)를 시각대로 30 fps로 고르고, 0.4초 페이드로 자막 카드. H.264 CRF 28, 22초, 2.5 MB, 포스터 118 KB. 녹화 도구는 D25처럼 레포에 넣지 않음.
 - 영상에 담긴 지금의 앱(옛 영상은 그 전 버전): 판독 화면 「SIGNS · SAM 3.1 · 24 in your photo」, 「LANDMARKS · 4 picked by Muse Spark」, Muse Spark 랜드마크(Palace Theatre, Minskoff Theatre, Midtown Comics, Museum at FIT), 사진으로 만든 길이라 끝나면 내 위치를 따라가는 화면(LIVE).
 - 바뀐 끝 장면: Dig Inn(912 m)은 내 위치를 따라가는 화면 밖이라, 화면 안에서 인스타그램 링크가 있는 가장 가까운 곳 Strand Book Store Kiosk(190 m 왼쪽)를 누름. 확대 안내(「Pinch or scroll to zoom」)는 길이 자리 잡기 시작하고 1.5초 뒤에 뜨는데, 그 전에 장소를 누르면 뜨지 않음(누른 것이 곧 배움). 그래서 1.15초에 누름.
+- 같은 사람의 다른 사진(2022-02-23, 민우가 링크와 함께 보낸 화면)도 시험함. 간판 23개 중 Muse Spark가 하나를 「T-Mobile(64 m 오른쪽)」로 읽어 간판 비행이 떴지만, 그 상자는 사진 왼쪽 끝의 Beetlejuice 극장 간판이었음(모델은 위치도 「middle」이라 함). 랜딩 영상에 틀린 ✓를 넣을 수 없어 4월 사진을 그대로 씀. 앱에는 이런 오인식을 거르는 장치가 없음(상자의 좌우 위치와 장소가 길의 어느 쪽인지 비교하지 않음).
 - 간판 비행 없음: SAM 3.1이 간판 상자 24개를 찾았지만 Muse Spark가 지도의 장소로 읽은 것이 없음(`seen: []`). 대부분 광고판이고 캡처라 해상도가 낮음. 이 경우 앱은 아무 말도 하지 않음(D26). 그대로 녹화함.
 - 영상 위 표시: 「DEMO · TIMES SQUARE」와 「real photo, real map data」. 전의 「DEMO · FROM TIMES SQUARE, NEW YORK」·「real map data」도 375 px 폭에서 이미 잘리고 있었음. 좁으면 두 줄로(flex-wrap).
 - 함께 고친 것: 카메라 화면의 「Fly down …」·「Use a photo」 상자(D40)가 위치가 잘 잡혀도 늘 떠 있었음. `.camera-ways { display: flex }`가 `.hidden`보다 CSS에서 뒤에 있어 이김. `.camera-ways.hidden`을 더함. 헤드리스로 홈·카메라·쇼 화면에서 `.hidden`인데 보이는 요소를 모두 찾았고 이것 하나뿐이었음. 위치를 막으면 여전히 뜸.
