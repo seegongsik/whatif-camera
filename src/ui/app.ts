@@ -285,9 +285,10 @@ export class App {
     // Where no street (or no place) is found, the nearest famous street is one tap away.
     const near = nearestStreet(FAMOUS_STREETS, at);
     const elsewhere = near ? { label: near.short, go: () => void this.streetFor(near) } : undefined;
-    // ?sam=0 leaves SAM 3.1 out, to compare the sign check with and without it.
+    // ?sam=0 leaves SAM 3.1 out, to compare the sign check with and without it; ?fps=1 shows how smoothly the show is drawn.
     const sam = params.get("sam") !== "0";
-    const show = new StreetShow({ origin: { lat: at.lat, lon: at.lon }, headingDeg: at.headingDeg, photo, capture, onClose: () => this.home(), onRetry, elsewhere, sam, ...more });
+    const fpsMeter = params.get("fps") === "1";
+    const show = new StreetShow({ origin: { lat: at.lat, lon: at.lon }, headingDeg: at.headingDeg, photo, capture, onClose: () => this.home(), onRetry, elsewhere, sam, fpsMeter, ...more });
     this.screen(show.element);
     this.streetShow = show;
     show.start();

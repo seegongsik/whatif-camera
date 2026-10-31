@@ -66,7 +66,7 @@ import {
   type Projected,
   type View,
 } from "./show-plan.js";
-import { drawTag, glow, MONO, rgba, SANS, tagMeasure, type TagStyle } from "./show-draw.js";
+import { drawTagStamped, glow, MONO, rgba, SANS, tagMeasure, type TagStyle } from "./show-draw.js";
 import { distanceText, walkMinutes, walkText, WALK_MINUTES_UP_TO_M } from "./signs.js";
 import { cutSign, drawSignBoxes, numberSigns, readSamReply, signsForPlaces, type SignBox } from "./sign-boxes.js";
 import { spotPlaces, type Spotted } from "./spotted.js";
@@ -126,6 +126,8 @@ export type StreetShowOptions = {
   elsewhere?: { label: string; go: () => void };
   /** Ask SAM 3.1 for the signs in the photo (true unless the page says no, ?sam=0). */
   sam?: boolean;
+  /** A small meter of frames per second over the show (?fps=1), to see how smoothly a phone draws it. */
+  fpsMeter?: boolean;
   /** Muse Spark's picks once they are in, to keep with the street (a street opened again uses them without asking). */
   onPicks?: (picks: Picks) => void;
   /** The street came from the live camera: once the light has run, the dot follows the phone along it. */
@@ -362,11 +364,16 @@ export class StreetShow {
   /** The how-to-zoom line is up: it goes as soon as the visitor zooms. */
   private hintUp = false;
   private readonly fitButton: HTMLButtonElement;
-  private vignette: HTMLCanvasElement | null = null;
   private t0 = performance.now();
   private frozen: number | null = null;
   /** The show's time at the last frame drawn (null: none yet, or frozen). */
   private lastFrameAt: number | null = null;
+  /** The name the title was last sized for. */
+  private fittedName = "";
+  /** ?fps=1: the meter, and the last frames' times. */
+  private meterEl: HTMLElement | null = null;
+  private readonly frameTimes: number[] = [];
+  private meterAt = 0;
   private raf = 0;
   private disposed = false;
   private noteTimer = 0;
@@ -441,6 +448,10 @@ export class StreetShow {
     this.canvas.addEventListener("gesturestart", (e) => e.preventDefault());
     window.addEventListener("resize", this.onResize);
     document.addEventListener("visibilitychange", this.onVisible);
+    if (options.fpsMeter) {
+      this.meterEl = h("div", { class: "show-meter", text: "… fps" });
+      this.element.append(this.meterEl);
+    }
   }
 
   /** Starts drawing; call once the element is in the page. */
@@ -557,7 +568,7 @@ export class StreetShow {
     this.canvas.height = Math.round(height * dpr);
     // The street runs halfway between the left edge and the ruler, so both columns of tags get the same room.
     this.view = { width, height, fovDeg: FOV_DEG, centerX: (width - RULER_PX) / 2 };
-    this.vignette = null;
+    this.paintGround();
     this.measureInsets();
   };
 
@@ -794,9 +805,8 @@ export class StreetShow {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.globalCompositeOperation = "source-over";
     ctx.globalAlpha = 1;
-    ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, this.view.width, this.view.height);
-    ctx.drawImage(this.vignetteCanvas(), 0, 0, this.view.width, this.view.height);
+    // The dark ground with its vignette is the canvas's own CSS background (set on resize): painting it here, every frame, cost more than anything drawn on it.
+    ctx.clearRect(0, 0, this.view.width, this.view.height);
     const head = this.headAt(now);
     this.drawGrid(project, pose, now, head);
     this.drawRadar(project, now);
@@ -814,23 +824,30 @@ export class StreetShow {
     this.drawPhoto(now);
     this.updateHud(now, head);
     this.updateCaption(now);
+    if (this.meterEl) this.updateMeter();
   }
 
-  private vignetteCanvas(): HTMLCanvasElement {
-    if (this.vignette) return this.vignette;
-    const c = document.createElement("canvas");
-    c.width = 256;
-    c.height = Math.max(64, Math.round((256 * this.view.height) / this.view.width));
-    const g = c.getContext("2d")!;
-    const grad = g.createRadialGradient(c.width / 2, c.height * 0.42, 0, c.width / 2, c.height * 0.42, Math.hypot(c.width, c.height) * 0.62);
-    grad.addColorStop(0, "#0b1522");
-    grad.addColorStop(0.55, "#04080d");
-    grad.addColorStop(1, "#000000");
-    g.fillStyle = grad;
-    g.fillRect(0, 0, c.width, c.height);
-    this.vignette = c;
-    return c;
+  /** ?fps=1: frames per second over the last two seconds, the slowest frame among them and the 95th percentile, twice a second. */
+  private updateMeter(): void {
+    const t = performance.now();
+    const times = this.frameTimes;
+    times.push(t);
+    while (times.length > 2 && t - times[0] > 2000) times.shift();
+    if (t - this.meterAt < 500 || times.length < 3) return;
+    this.meterAt = t;
+    const gaps = times.slice(1).map((x, i) => x - times[i]).sort((a, b) => a - b);
+    const fps = (gaps.length * 1000) / (times[times.length - 1] - times[0]);
+    const p95 = gaps[Math.min(gaps.length - 1, Math.floor(gaps.length * 0.95))];
+    this.meterEl!.textContent = `${fps.toFixed(0)} fps · p95 ${p95.toFixed(0)} ms · worst ${gaps[gaps.length - 1].toFixed(0)} ms · ${this.canvas.width / this.view.width}x`;
   }
+
+  /** The ground: dark blue under the middle fading to black at the edges, behind the canvas. */
+  private paintGround(): void {
+    const { width: w, height: hgt } = this.view;
+    const r = Math.round(Math.hypot(w, hgt) * 0.62);
+    this.canvas.style.background = `radial-gradient(circle ${r}px at 50% 42%, #0b1522 0, #04080d ${Math.round(r * 0.55)}px, #000 ${r}px)`;
+  }
+
 
   /** Far things fade, as in haze; how far is far depends on how far out the camera is. */
   private fog(depth: number, pose: Pose): number {
@@ -872,7 +889,7 @@ export class StreetShow {
       if (scan !== Infinity) alpha *= 1 + 2 * Math.min(1, Math.max(0, (scan - r) / 160)) * Math.min(1, Math.max(0, 1 - (scan - r) / 600));
       if (headAt) alpha += 0.2 * Math.exp(-((mx - headAt.x) ** 2 + (my - headAt.y) ** 2) / (2 * 260 ** 2));
       const level = Math.round(alpha * weight * 40);
-      if (level <= 0) return;
+      if (level <= 1) return;
       let list = levels.get(level);
       if (!list) levels.set(level, (list = []));
       list.push(p.x, p.y, q.x, q.y);
@@ -1711,7 +1728,7 @@ export class StreetShow {
     ctx.translate(label.x, label.y);
     ctx.scale(k, k);
     ctx.translate(-label.x, -label.y);
-    drawTag(ctx, label);
+    drawTagStamped(ctx, label, this.canvas.width / this.view.width);
     if (fresh) {
       ctx.strokeStyle = `rgba(255,255,255,${0.9 * (1 - age / 420)})`;
       ctx.lineWidth = 2;
@@ -1788,7 +1805,8 @@ export class StreetShow {
     let stats = "";
     if (street && this.run) {
       const run = this.run;
-      const count = [...run.born.values()].filter((t) => t <= now).length;
+      let count = 0;
+      for (const t of run.born.values()) if (t <= now) count += 1;
       const noun = this.focus ? this.focus.noun : "places";
       const km = (Math.max(0, this.phase === "run" ? head : this.reach(this.focus)) / 1000).toFixed(2);
       stats = !this.focus && this.phase !== "run" && street.placesFound ? `${km} km · ${count} of ${street.placesFound} places` : `${km} km · ${count} ${noun}`;
@@ -1798,7 +1816,12 @@ export class StreetShow {
       this.hudKey = key;
       this.nameEl.textContent = name || "\u00a0";
       this.statsEl.textContent = stats;
-      this.fitName(street ? this.title() : name);
+      // Sized for the name alone: the numbers under it change every frame while the light runs, and measuring then forced a layout each time.
+      const full = street ? this.title() : name;
+      if (full !== this.fittedName) {
+        this.fittedName = full;
+        this.fitName(full);
+      }
     }
     this.renderConsole(now);
     if (this.walk) this.renderWalkBar(now);

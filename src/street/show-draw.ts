@@ -57,17 +57,29 @@ export function tagMeasure(ctx: CanvasRenderingContext2D): (text: string, size: 
  * so the padding (9 px at 13 px type) matches.
  */
 export function drawTag(ctx: CanvasRenderingContext2D, label: PlacedLabel<TagStyle>): void {
+  drawLeader(ctx, label);
+  drawTagBody(ctx, label);
+}
+
+/** The thin line from the place to its tag. */
+function drawLeader(ctx: CanvasRenderingContext2D, label: PlacedLabel<TagStyle>): void {
   const { box, item, font } = label;
-  const scale = font / 13;
-  const pad = 9 * scale;
-  const left = label.side === "left";
-  const inner = left ? box.x + box.w : box.x;
+  const inner = label.side === "left" ? box.x + box.w : box.x;
   ctx.strokeStyle = rgba(item.color, 0.65);
-  ctx.lineWidth = scale;
+  ctx.lineWidth = font / 13;
   ctx.beginPath();
   ctx.moveTo(label.x, label.y);
   ctx.lineTo(inner, box.y + box.h / 2);
   ctx.stroke();
+}
+
+/** The tag itself: its box, the colour mark (or stop number) and its lines. */
+function drawTagBody(ctx: CanvasRenderingContext2D, label: PlacedLabel<TagStyle>): void {
+  const { box, item, font } = label;
+  const scale = font / 13;
+  const pad = 9 * scale;
+  const left = label.side === "left";
+  ctx.lineWidth = scale;
   ctx.fillStyle = "rgba(6,9,14,0.86)";
   ctx.strokeStyle = rgba(item.color, item.end ? 0.35 : 0.7);
   ctx.beginPath();
@@ -102,4 +114,39 @@ export function drawTag(ctx: CanvasRenderingContext2D, label: PlacedLabel<TagSty
   ctx.font = `600 ${Math.round(font * 0.8)}px ${MONO}`;
   ctx.fillText(label.detail, tx, top + font * 1.2 * label.lines.length + font * 0.8);
   ctx.textAlign = "left";
+}
+
+/**
+ * Tags drawn once and stamped after: text is the dearest thing on the
+ * screen to draw, and a tag does not change while it stays up. Keyed by
+ * what it shows, its size and the canvas's resolution; the oldest go first.
+ */
+const tagSprites = new Map<string, HTMLCanvasElement>();
+const TAG_SPRITES_MAX = 200;
+/** Room around the box for its border. */
+const TAG_MARGIN = 2;
+
+/** drawTag for a canvas redrawn every frame: the leader line as it is, the tag from its picture. `dpr`: the canvas's pixels per CSS pixel. */
+export function drawTagStamped(ctx: CanvasRenderingContext2D, label: PlacedLabel<TagStyle>, dpr: number): void {
+  drawLeader(ctx, label);
+  const { box, item } = label;
+  const key = [dpr, label.font, box.w, box.h, label.side, item.color, item.number ?? "", item.end ? 1 : 0, label.detail, ...label.lines].join("|");
+  let sprite = tagSprites.get(key);
+  if (sprite) {
+    // Most recently used last, so the oldest is the first to go.
+    tagSprites.delete(key);
+  } else {
+    sprite = document.createElement("canvas");
+    sprite.width = Math.ceil((box.w + 2 * TAG_MARGIN) * dpr);
+    sprite.height = Math.ceil((box.h + 2 * TAG_MARGIN) * dpr);
+    const g = sprite.getContext("2d")!;
+    g.setTransform(dpr, 0, 0, dpr, (TAG_MARGIN - box.x) * dpr, (TAG_MARGIN - box.y) * dpr);
+    drawTagBody(g, label);
+    if (tagSprites.size >= TAG_SPRITES_MAX) tagSprites.delete(tagSprites.keys().next().value!);
+  }
+  tagSprites.set(key, sprite);
+  // On whole device pixels, so the text stays as sharp as drawn.
+  const x = Math.round((box.x - TAG_MARGIN) * dpr) / dpr;
+  const y = Math.round((box.y - TAG_MARGIN) * dpr) / dpr;
+  ctx.drawImage(sprite, x, y, sprite.width / dpr, sprite.height / dpr);
 }
